@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Benchmark Justice",
+    "slug": "benchmark-justice-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/benchmark_justice_logo.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/images/benchmark_justice_logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#050B14"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.benchmarkjustice.mobile",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/benchmark_justice_logo.png",
+        "backgroundColor": "#050B14"
+      }
+    },
+    "web": {
+      "favicon": "./assets/images/benchmark_justice_logo.png"
+    }
+  }
+}

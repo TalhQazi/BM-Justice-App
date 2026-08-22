@@ -1,0 +1,24 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+  <style name="AppTheme" parent="Theme.AppCompat.NoActionBar">
+    <item name="android:windowBackground">@drawable/splashscreen</item>
+    <item name="android:colorBackground">#050B14</item>
+    <item name="android:textColor">#F5F7FA</item>
+    <item name="android:editTextStyle">@style/ResetEditText</item>
+    <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
+    <item name="colorPrimary">@color/colorPrimary</item>
+    <item name="android:statusBarColor">#050B14</item>
+    <item name="android:navigationBarColor">#050B14</item>
+  </style>
+
+  <style name="ResetEditText" parent="@android:style/Widget.EditText">
+    <item name="android:padding">0dp</item>
+    <item name="android:textColorHint">#8E9AA8</item>
+    <item name="android:textColor">#F5F7FA</item>
+  </style>
+
+  <style name="Theme.App.SplashScreen" parent="AppTheme">
+    <item name="android:windowBackground">@drawable/splashscreen</item>
+    <item name="android:statusBarColor">#050B14</item>
+    <item name="android:navigationBarColor">#050B14</item>
+  </style>
+</resources>
