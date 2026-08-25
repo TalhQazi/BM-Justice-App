@@ -61,7 +61,7 @@ async function getJson<T>(path: string, token?: string): Promise<T> {
       try {
         const fbRes = await fetch(`${fbUrl}${path}`, { headers });
         if (fbRes.ok) return fbRes.json() as Promise<T>;
-      } catch {}
+      } catch { }
     }
     throw err;
   }
