@@ -1,241 +1,143 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import React, { useEffect } from 'react';
+import { StyleSheet, View } from 'react-native';
+import Animated, {
+  Easing,
+  cancelAnimation,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 import { useNavigation } from '@react-navigation/native';
-import Svg, { Path, Circle, Polyline } from 'react-native-svg';
-import { colors } from '../theme/colors';
-import { api } from '../services/api';
-import type { LiveIntelligenceData } from '../types';
+import { ChevronRight, FileText, FolderOpen, Gavel, Quote } from 'lucide-react-native';
+import * as cl from '../services/courtlistener';
+import type { FeedItem } from '../types';
+import { useTheme } from '../theme/ThemeProvider';
+import { useAsync } from '../hooks/useAsync';
+import { formatDate, timeAgo } from '../utils/format';
+import { ErrorState } from './ErrorState';
+import { AppText, Card, IconTile, PressableScale, SkeletonCard, enterUp } from './ui';
 
+/** Softly pulsing "live" indicator. */
+export function LivePulse({ color, size = 8 }: { color: string; size?: number }) {
+  const p = useSharedValue(0);
+  useEffect(() => {
+    p.value = withRepeat(withTiming(1, { duration: 1600, easing: Easing.out(Easing.ease) }), -1, false);
+    return () => cancelAnimation(p);
+  }, [p]);
+  const ring = useAnimatedStyle(() => ({ opacity: 0.55 * (1 - p.value), transform: [{ scale: 1 + p.value * 1.6 }] }));
+  return (
+    <View style={{ width: size * 2.4, height: size * 2.4, alignItems: 'center', justifyContent: 'center' }}>
+      <Animated.View style={[{ position: 'absolute', width: size, height: size, borderRadius: size, backgroundColor: color }, ring]} />
+      <View style={{ width: size, height: size, borderRadius: size, backgroundColor: color }} />
+    </View>
+  );
+}
+
+/** Card for one live opinion or docket. */
+export function FeedCard({ item, index }: { item: FeedItem; index: number }) {
+  const t = useTheme();
+  const navigation = useNavigation<any>();
+  const isOpinion = item.kind === 'opinion';
+  return (
+    <Animated.View entering={enterUp(index)}>
+      <Card onPress={() => navigation.navigate('CaseDetail', { id: item.routeId })} haptic accentEdge={index === 0}>
+        <View style={styles.cardTop}>
+          <AppText variant="overline" color={isOpinion ? t.colors.accent : t.colors.teal}>
+            {isOpinion ? 'New opinion' : 'New federal docket'}
+          </AppText>
+          <AppText variant="caption">{timeAgo(item.date) || formatDate(item.date)}</AppText>
+        </View>
+        <View style={styles.row}>
+          <IconTile icon={isOpinion ? FileText : FolderOpen} tone={isOpinion ? 'gold' : 'teal'} />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <AppText variant="title" numberOfLines={2}>
+              {item.title}
+            </AppText>
+            <AppText variant="caption" style={{ marginTop: 2 }} numberOfLines={1}>
+              {item.court}
+            </AppText>
+          </View>
+        </View>
+        {item.detail || item.judge ? (
+          <View style={[styles.meta, { borderTopColor: t.colors.divider }]}>
+            {item.detail ? (
+              <View style={styles.metaLine}>
+                <Quote size={12} color={t.colors.textTertiary} />
+                <AppText variant="caption" numberOfLines={1} style={{ flex: 1 }}>
+                  {item.detail}
+                </AppText>
+              </View>
+            ) : null}
+            {item.judge ? (
+              <View style={styles.metaLine}>
+                <Gavel size={12} color={t.colors.textTertiary} />
+                <AppText variant="caption" numberOfLines={1} style={{ flex: 1 }}>
+                  {item.judge}
+                </AppText>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+      </Card>
+    </Animated.View>
+  );
+}
+
+/** Dashboard panel: newest opinions and dockets straight from CourtListener. */
 export default function LiveIntelligencePanel() {
   const navigation = useNavigation<any>();
-  const [data, setData] = useState<LiveIntelligenceData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const t = useTheme();
 
-  useEffect(() => {
-    let mounted = true;
-    setLoading(true);
-    api
-      .getRecentIntelligence()
-      .then((res) => {
-        if (mounted && res && (res.recentDecision || res.trendingJudge || res.attorneyPerformance)) {
-          setData(res);
-        } else if (mounted) {
-          setData(null);
-        }
-      })
-      .catch(() => {
-        if (mounted) setData(null);
-      })
-      .finally(() => {
-        if (mounted) setLoading(false);
-      });
-
-    return () => {
-      mounted = false;
-    };
+  const { data, error, loading, reload } = useAsync(async () => {
+    const [ops, dks] = await Promise.allSettled([cl.latestOpinions(), cl.latestDockets()]);
+    const a = ops.status === 'fulfilled' ? ops.value.feed.slice(0, 2) : [];
+    const b = dks.status === 'fulfilled' ? dks.value.feed.slice(0, 2) : [];
+    if (!a.length && !b.length) {
+      const failure = ops.status === 'rejected' ? ops.reason : dks.status === 'rejected' ? dks.reason : null;
+      if (failure) throw failure;
+    }
+    return [a[0], b[0], a[1], b[1]].filter(Boolean) as FeedItem[];
   }, []);
 
-  const decision = data?.recentDecision;
-  const judge = data?.trendingJudge;
-  const attorney = data?.attorneyPerformance;
-
-  const handleDecisionPress = () => {
-    if (decision?.caseId) {
-      navigation.navigate('CaseDetail', { id: decision.caseId });
-    } else {
-      navigation.navigate('SearchResults', { initialCategory: 'cases' });
-    }
-  };
-
-  const handleJudgePress = () => {
-    if (judge?.id) {
-      navigation.navigate('JudgeProfile', { id: judge.id });
-    } else {
-      navigation.navigate('SearchResults', { initialCategory: 'judges' });
-    }
-  };
-
-  const handleAttorneyPress = () => {
-    if (attorney?.id) {
-      navigation.navigate('AttorneyProfile', { id: attorney.id });
-    } else {
-      navigation.navigate('SearchResults', { initialCategory: 'attorneys' });
-    }
-  };
-
   return (
-    <View style={styles.container}>
-      {/* Header */}
+    <View>
       <View style={styles.header}>
-        <View style={styles.titleRow}>
-          <View style={styles.pulseWrapper}>
-            <View style={styles.pulseDot} />
+        <View style={{ flex: 1 }}>
+          <View style={styles.liveRow}>
+            <LivePulse color={t.colors.success} />
+            <AppText variant="overline" color={t.colors.success}>
+              Live updates
+            </AppText>
           </View>
-          <Text style={styles.title}>LIVE JUSTICE INTELLIGENCE</Text>
+          <AppText variant="h2">Latest from the courts</AppText>
         </View>
-        <TouchableOpacity
-          activeOpacity={0.7}
-          style={styles.viewAllBtn}
+        <PressableScale
+          haptic
           onPress={() => navigation.navigate('Activity')}
+          style={[styles.viewAll, { backgroundColor: t.colors.accentSoft, borderColor: t.colors.accentBorder }]}
         >
-          <Text style={styles.viewAllText}>View All &rsaquo;</Text>
-        </TouchableOpacity>
+          <AppText variant="callout" color={t.colors.accent}>
+            View all
+          </AppText>
+          <ChevronRight size={14} color={t.colors.accent} strokeWidth={2.4} />
+        </PressableScale>
       </View>
 
-      {loading ? (
-        <View style={styles.emptyCard}>
-          <ActivityIndicator size="small" color={colors.primary} />
-          <Text style={styles.emptyText}>Streaming live judicial intelligence...</Text>
+      {loading && !data ? (
+        <View style={{ gap: 12 }}>
+          <SkeletonCard lines={2} />
+          <SkeletonCard lines={2} />
         </View>
-      ) : !data ? (
-        <View style={styles.emptyCard}>
-          <Text style={styles.emptyTitle}>NO LIVE TELEMETRY</Text>
-          <Text style={styles.emptyText}>Real-time feed will populate automatically when backend streams data.</Text>
-        </View>
+      ) : error ? (
+        <Card variant="sunken">
+          <ErrorState error={error} onRetry={reload} style={{ paddingVertical: 20 }} />
+        </Card>
       ) : (
-        <View style={styles.cardsContainer}>
-          {/* 1. Recently Analyzed Decision */}
-          {decision && (
-            <TouchableOpacity
-              activeOpacity={0.8}
-              style={styles.subCard}
-              onPress={handleDecisionPress}
-            >
-              <Text style={styles.categoryLabelBlue}>RECENTLY ANALYZED DECISIONS</Text>
-              <View style={styles.cardContentRow}>
-                <View style={styles.iconBoxBlue}>
-                  <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-                    <Path
-                      d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
-                      stroke="#4D7CFE"
-                      strokeWidth={2}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                    <Polyline
-                      points="14 2 14 8 20 8"
-                      stroke="#4D7CFE"
-                      strokeWidth={2}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                    <Path
-                      d="M16 13H8M16 17H8M10 9H8"
-                      stroke="#4D7CFE"
-                      strokeWidth={2}
-                      strokeLinecap="round"
-                    />
-                  </Svg>
-                </View>
-
-                <View style={styles.textContainer}>
-                  <Text style={styles.cardMainTitle}>{decision.title}</Text>
-                  <Text style={styles.courtName}>{decision.court}</Text>
-
-                  <View style={styles.metaRow}>
-                    <Text style={styles.deviationText}>
-                      Sentencing / Review deviation:{' '}
-                      <Text style={styles.deviationValueGreen}>{decision.deviation}</Text>
-                    </Text>
-                    <Text style={styles.timeAgo}>{decision.timeAgo}</Text>
-                  </View>
-                </View>
-              </View>
-            </TouchableOpacity>
-          )}
-
-          {/* 2. Trending Judge */}
-          {judge && (
-            <TouchableOpacity
-              activeOpacity={0.8}
-              style={styles.subCard}
-              onPress={handleJudgePress}
-            >
-              <Text style={styles.categoryLabelGreen}>TRENDING JUDGE</Text>
-              <View style={styles.cardContentRow}>
-                <View style={styles.iconBoxGreen}>
-                  <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-                    <Path
-                      d="M3 21h18M3 10h18M5 10v11M19 10v11M9 10v11M15 10v11M12 3l9 7H3l9-7z"
-                      stroke="#4FD675"
-                      strokeWidth={2}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </Svg>
-                </View>
-
-                <View style={styles.textContainer}>
-                  <View style={styles.judgeTitleRow}>
-                    <Text style={styles.cardMainTitle}>{judge.name}</Text>
-                    <Svg width={60} height={24} viewBox="0 0 60 24">
-                      <Path
-                        d="M 0,20 Q 20,18 35,8 T 60,4"
-                        fill="none"
-                        stroke="#4FD675"
-                        strokeWidth={2}
-                        strokeLinecap="round"
-                      />
-                      <Circle cx={60} cy={4} r={3} fill="#4FD675" />
-                    </Svg>
-                  </View>
-                  <Text style={styles.courtName}>{judge.court}</Text>
-
-                  <View style={styles.metaRow}>
-                    <Text style={styles.analyzedText}>
-                      {judge.casesAnalyzed ? `${judge.casesAnalyzed.toLocaleString()} analyzed matters` : 'Audited judicial record'}
-                    </Text>
-                    <Text style={styles.scoreText}>
-                      Benchmark Justice Score:{' '}
-                      <Text style={styles.scoreValueGreen}>{judge.score}</Text>
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            </TouchableOpacity>
-          )}
-
-          {/* 3. Attorney Performance */}
-          {attorney && (
-            <TouchableOpacity
-              activeOpacity={0.8}
-              style={styles.subCard}
-              onPress={handleAttorneyPress}
-            >
-              <Text style={styles.categoryLabelBlue}>ATTORNEY PERFORMANCE</Text>
-              <View style={styles.cardContentRow}>
-                <View style={styles.iconBoxBlue}>
-                  <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-                    <Path
-                      d="M20 7h-4V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v3H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"
-                      stroke="#4D7CFE"
-                      strokeWidth={2}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                    <Path d="M8 7V4h8v3" stroke="#4D7CFE" strokeWidth={2} />
-                  </Svg>
-                </View>
-
-                <View style={styles.textContainer}>
-                  <Text style={styles.cardMainTitle}>{attorney.name}</Text>
-                  <Text style={styles.courtName}>
-                    {attorney.firm || attorney.jurisdiction || 'Appellate & Defense Counsel'}
-                  </Text>
-
-                  <View style={styles.metaRow}>
-                    <Text style={styles.analyzedText}>
-                      {attorney.casesAnalyzed ? `${attorney.casesAnalyzed} analyzed cases` : 'Verified legal filings'}
-                    </Text>
-                    <Text style={styles.favorableText}>
-                      Favorable Outcome Rate:{' '}
-                      <Text style={styles.favorableValueGreen}>{attorney.favorableRate}</Text>
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            </TouchableOpacity>
-          )}
+        <View style={{ gap: 12 }}>
+          {(data || []).map((item, i) => (
+            <FeedCard key={item.id} item={item} index={i} />
+          ))}
         </View>
       )}
     </View>
@@ -243,201 +145,19 @@ export default function LiveIntelligencePanel() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: '#070F1E',
-    borderWidth: 1,
-    borderColor: '#1E293B',
-    borderRadius: 20,
-    padding: 16,
-    marginVertical: 14,
-  },
-  header: {
+  header: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 14 },
+  liveRow: { flexDirection: 'row', alignItems: 'center', gap: 2, marginLeft: -6, marginBottom: 1 },
+  viewAll: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-    paddingHorizontal: 2,
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    paddingRight: 8,
-  },
-  pulseWrapper: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: 'rgba(79, 214, 117, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 8,
-  },
-  pulseDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#4FD675',
-  },
-  title: {
-    fontSize: 11.5,
-    fontWeight: '800',
-    color: '#F5F7FA',
-    letterSpacing: 1.2,
-    fontFamily: 'monospace',
-    flexShrink: 1,
-  },
-  viewAllBtn: {
-    backgroundColor: 'rgba(77, 124, 254, 0.15)',
+    gap: 2,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: 'rgba(77, 124, 254, 0.35)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 14,
-    alignSelf: 'center',
   },
-  viewAllText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#4D7CFE',
-    fontFamily: 'monospace',
-  },
-  emptyCard: {
-    padding: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#050B14',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#1E293B',
-  },
-  emptyTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#8E9AA8',
-    fontFamily: 'monospace',
-    marginBottom: 4,
-  },
-  emptyText: {
-    fontSize: 11,
-    color: '#64748B',
-    fontFamily: 'monospace',
-    textAlign: 'center',
-    marginTop: 6,
-  },
-  cardsContainer: {
-    gap: 12,
-  },
-  subCard: {
-    backgroundColor: '#050B14',
-    borderWidth: 1,
-    borderColor: '#1E293B',
-    borderRadius: 14,
-    padding: 14,
-  },
-  categoryLabelBlue: {
-    fontSize: 9.5,
-    fontWeight: '800',
-    color: '#4D7CFE',
-    letterSpacing: 1,
-    fontFamily: 'monospace',
-    marginBottom: 8,
-  },
-  categoryLabelGreen: {
-    fontSize: 9.5,
-    fontWeight: '800',
-    color: '#4FD675',
-    letterSpacing: 1,
-    fontFamily: 'monospace',
-    marginBottom: 8,
-  },
-  cardContentRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-  },
-  iconBoxBlue: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    backgroundColor: 'rgba(77, 124, 254, 0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(77, 124, 254, 0.25)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 2,
-  },
-  iconBoxGreen: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    backgroundColor: 'rgba(79, 214, 117, 0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(79, 214, 117, 0.25)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 2,
-  },
-  textContainer: {
-    flex: 1,
-  },
-  cardMainTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#F5F7FA',
-    marginBottom: 2,
-  },
-  judgeTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  courtName: {
-    fontSize: 11.5,
-    color: '#8E9AA8',
-    marginBottom: 8,
-  },
-  metaRow: {
-    gap: 4,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.05)',
-    paddingTop: 8,
-  },
-  deviationText: {
-    fontSize: 11,
-    color: '#8E9AA8',
-    fontFamily: 'monospace',
-  },
-  deviationValueGreen: {
-    color: '#4FD675',
-    fontWeight: '700',
-  },
-  timeAgo: {
-    fontSize: 10,
-    color: '#64748B',
-    fontFamily: 'monospace',
-  },
-  analyzedText: {
-    fontSize: 11,
-    color: '#8E9AA8',
-    fontFamily: 'monospace',
-  },
-  scoreText: {
-    fontSize: 11,
-    color: '#8E9AA8',
-    fontFamily: 'monospace',
-  },
-  scoreValueGreen: {
-    color: '#4FD675',
-    fontWeight: '700',
-  },
-  favorableText: {
-    fontSize: 11,
-    color: '#8E9AA8',
-    fontFamily: 'monospace',
-  },
-  favorableValueGreen: {
-    color: '#4FD675',
-    fontWeight: '700',
-  },
+  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  meta: { marginTop: 14, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, gap: 6 },
+  metaLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
 });

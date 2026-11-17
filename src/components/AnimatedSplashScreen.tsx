@@ -1,139 +1,109 @@
-import React, { useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  Image,
-  StyleSheet,
-  Animated,
-  Dimensions,
+import React, { useEffect } from 'react';
+import { Image, StyleSheet, View, useWindowDimensions } from 'react-native';
+import Animated, {
   Easing,
-  StatusBar,
-} from 'react-native';
-import { colors } from '../theme/colors';
-
-const { width } = Dimensions.get('window');
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
+import { palette } from '../theme/tokens';
+import { useTheme } from '../theme/ThemeProvider';
+import { AppText } from './ui';
 
 interface AnimatedSplashScreenProps {
   onFinish: () => void;
 }
 
 export default function AnimatedSplashScreen({ onFinish }: AnimatedSplashScreenProps) {
-  const logoScale = useRef(new Animated.Value(0.75)).current;
-  const logoOpacity = useRef(new Animated.Value(0)).current;
-  const taglineOpacity = useRef(new Animated.Value(0)).current;
-  const taglineTranslateY = useRef(new Animated.Value(12)).current;
-  const progressAnim = useRef(new Animated.Value(0)).current;
-  const exitOpacity = useRef(new Animated.Value(1)).current;
+  const t = useTheme();
+  const { width } = useWindowDimensions();
+  const logoSize = Math.min(width * 0.78, 320);
+
+  const logoOpacity = useSharedValue(0);
+  const logoScale = useSharedValue(0.88);
+  const tagline = useSharedValue(0);
+  const progress = useSharedValue(0);
+  const exit = useSharedValue(1);
 
   useEffect(() => {
-    // 1. Entrance animation: Logo spring & fade in
-    Animated.parallel([
-      Animated.timing(logoOpacity, {
-        toValue: 1,
-        duration: 900,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
+    logoOpacity.value = withTiming(1, { duration: 900, easing: Easing.out(Easing.cubic) });
+    logoScale.value = withSpring(1, { damping: 14, stiffness: 90 });
+    tagline.value = withDelay(600, withTiming(1, { duration: 700, easing: Easing.out(Easing.cubic) }));
+    progress.value = withTiming(1, { duration: 2800, easing: Easing.inOut(Easing.quad) });
+    exit.value = withDelay(
+      3200,
+      withTiming(0, { duration: 450, easing: Easing.in(Easing.cubic) }, (finished) => {
+        if (finished) runOnJS(onFinish)();
       }),
-      Animated.spring(logoScale, {
-        toValue: 1,
-        friction: 6,
-        tension: 40,
-        useNativeDriver: true,
-      }),
-    ]).start();
+    );
+  }, [onFinish, logoOpacity, logoScale, tagline, progress, exit]);
 
-    // 2. Tagline entrance (starts after 600ms)
-    setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(taglineOpacity, {
-          toValue: 1,
-          duration: 700,
-          easing: Easing.out(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(taglineTranslateY, {
-          toValue: 0,
-          duration: 700,
-          easing: Easing.out(Easing.back(1.5)),
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }, 600);
-
-    // 3. Progress bar animation over 2.8s
-    Animated.timing(progressAnim, {
-      toValue: 1,
-      duration: 2800,
-      easing: Easing.inOut(Easing.quad),
-      useNativeDriver: false,
-    }).start();
-
-    // 4. Exit transition at ~3.2 seconds
-    const exitTimer = setTimeout(() => {
-      Animated.timing(exitOpacity, {
-        toValue: 0,
-        duration: 450,
-        easing: Easing.in(Easing.cubic),
-        useNativeDriver: true,
-      }).start(() => {
-        onFinish();
-      });
-    }, 3200);
-
-    return () => {
-      clearTimeout(exitTimer);
-    };
-  }, [onFinish]);
-
-  const progressBarWidth = progressAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0%', '100%'],
-  });
+  const containerStyle = useAnimatedStyle(() => ({ opacity: exit.value }));
+  const logoStyle = useAnimatedStyle(() => ({
+    opacity: logoOpacity.value,
+    transform: [{ scale: logoScale.value }],
+  }));
+  const taglineStyle = useAnimatedStyle(() => ({
+    opacity: tagline.value,
+    transform: [{ translateY: (1 - tagline.value) * 12 }],
+  }));
+  const progressStyle = useAnimatedStyle(() => ({ transform: [{ scaleX: progress.value }] }));
 
   return (
-    <Animated.View style={[styles.container, { opacity: exitOpacity }]}>
-      <StatusBar barStyle="light-content" backgroundColor="#050B14" />
-      
-      {/* Centered Animated Logo */}
-      <View style={styles.centerContent}>
-        <Animated.View
-          style={[
-            styles.logoContainer,
-            {
-              opacity: logoOpacity,
-              transform: [{ scale: logoScale }],
-            },
-          ]}
-        >
+    <Animated.View style={[styles.container, containerStyle]}>
+      <LinearGradient
+        colors={['#050B14', '#071223', '#050B14']}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+
+      <View style={styles.center}>
+        <Animated.View style={logoStyle}>
           <Image
             source={require('../../assets/images/benchmark_justice_logo.png')}
-            style={styles.logo}
-            resizeMode="contain"
+            style={{ width: logoSize, height: logoSize * 0.5 }}
+            resizeMode="cover"
           />
         </Animated.View>
 
-        {/* Animated Eyebrow / Tagline */}
-        <Animated.View
-          style={[
-            styles.taglineContainer,
-            {
-              opacity: taglineOpacity,
-              transform: [{ translateY: taglineTranslateY }],
-            },
-          ]}
-        >
-          <Text style={styles.tagline}>
-            REAL DATA. REAL OUTCOMES. REAL JUSTICE.
-          </Text>
+        <Animated.View style={[styles.taglineWrap, taglineStyle]}>
+          <View style={styles.rule} />
+          <AppText
+            variant="overline"
+            color={palette.gold400}
+            style={{ letterSpacing: 2.4, fontSize: 10.5 }}
+            align="center"
+          >
+            Real Data · Real Outcomes · Real Justice
+          </AppText>
+          <View style={styles.rule} />
         </Animated.View>
       </View>
 
-      {/* Bottom Loading Progress Indicator */}
-      <View style={styles.bottomSection}>
-        <View style={styles.progressBarTrack}>
-          <Animated.View style={[styles.progressBarFill, { width: progressBarWidth }]} />
+      <View style={styles.bottom}>
+        <View style={styles.track}>
+          <Animated.View style={[styles.fillWrap, progressStyle]}>
+            <LinearGradient
+              colors={[palette.gold600, palette.gold300, palette.gold600]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={StyleSheet.absoluteFill}
+            />
+          </Animated.View>
         </View>
-        <Text style={styles.loadingText}>INITIALIZING JUDICIAL INTELLIGENCE...</Text>
+        <AppText
+          variant="overline"
+          color={palette.navy300}
+          style={{ fontSize: 9.5, letterSpacing: 1.8, fontFamily: t.fonts.sansMedium }}
+          align="center"
+        >
+          Initializing judicial intelligence
+        </AppText>
       </View>
     </Animated.View>
   );
@@ -142,63 +112,22 @@ export default function AnimatedSplashScreen({ onFinish }: AnimatedSplashScreenP
 const styles = StyleSheet.create({
   container: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#050B14',
     zIndex: 9999,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#050B14',
   },
-  centerContent: {
-    alignItems: 'center',
-    justifyContent: 'center',
+  center: { alignItems: 'center', justifyContent: 'center', width: '100%', paddingHorizontal: 24 },
+  taglineWrap: { marginTop: 10, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  rule: { width: 18, height: 1, backgroundColor: 'rgba(210,182,118,0.5)' },
+  bottom: { position: 'absolute', bottom: 56, width: '100%', paddingHorizontal: 64, alignItems: 'center' },
+  track: {
     width: '100%',
-    paddingHorizontal: 24,
-  },
-  logoContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logo: {
-    width: width * 0.72,
-    maxWidth: 300,
-    height: 110,
-  },
-  taglineContainer: {
-    marginTop: 18,
-    alignItems: 'center',
-  },
-  tagline: {
-    fontSize: 10.5,
-    fontWeight: '800',
-    color: '#4D7CFE',
-    letterSpacing: 2,
-    fontFamily: 'monospace',
-    textAlign: 'center',
-  },
-  bottomSection: {
-    position: 'absolute',
-    bottom: 50,
-    alignItems: 'center',
-    width: '100%',
-    paddingHorizontal: 50,
-  },
-  progressBarTrack: {
-    width: '100%',
-    height: 3,
-    backgroundColor: 'rgba(77, 124, 254, 0.15)',
-    borderRadius: 2,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: 'rgba(194,161,90,0.15)',
     overflow: 'hidden',
-    marginBottom: 10,
+    marginBottom: 12,
   },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: '#4D7CFE',
-    borderRadius: 2,
-  },
-  loadingText: {
-    fontSize: 9.5,
-    fontWeight: '700',
-    color: '#64748B',
-    letterSpacing: 1.5,
-    fontFamily: 'monospace',
-  },
+  fillWrap: { ...StyleSheet.absoluteFillObject, transformOrigin: 'left' },
 });

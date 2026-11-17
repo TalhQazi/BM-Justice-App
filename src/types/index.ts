@@ -1,98 +1,5 @@
-export type EntityType = 'JUDGE' | 'ATTORNEY' | 'PROSECUTOR' | 'LEGISLATOR' | 'CASE' | 'COURT';
-export type ScoreType = 'BJI' | 'API' | 'PDI' | 'LVI';
-
-export interface ScoreResult {
-  entityId: string;
-  entityType: EntityType;
-  scoreType: ScoreType;
-  value?: number;
-  score?: number;
-  confidence: number;
-  sampleSize: number;
-  breakdown?: Record<string, number>;
-  disclaimer?: string;
-}
-
-export interface Judge {
-  id: string;
-  fullName: string;
-  normalizedName?: string;
-  court: string;
-  jurisdiction: string;
-  appointedDate?: string | null;
-  appointingAuthority?: string | null;
-  nominationDate?: string | null;
-  courtListenerId?: number | null;
-  createdAt: string;
-}
-
-export interface Attorney {
-  id: string;
-  fullName: string;
-  normalizedName?: string;
-  barNumber?: string | null;
-  jurisdiction: string;
-  firmName?: string | null;
-  barAdmissionDate?: string | null;
-  admissionJurisdiction?: string | null;
-  createdAt: string;
-}
-
-export interface Prosecutor {
-  id: string;
-  fullName: string;
-  normalizedName?: string;
-  office: string;
-  jurisdiction: string;
-  appointedDate?: string | null;
-  appointingAuthority?: string | null;
-  createdAt: string;
-}
-
-export interface Legislator {
-  id: string;
-  fullName: string;
-  chamber: string;
-  party: string;
-  state: string;
-  district?: string | null;
-  jurisdiction: string;
-  createdAt: string;
-}
-
-export interface CaseSummary {
-  caseId: string;
-  jurisdiction: string;
-  caseType: string;
-  severityScore: number;
-  filingDate: string;
-  outcome: string | null;
-  normalizedOutcome: number | null;
-  courtListenerDocketId?: number | null;
-}
-
-export interface SearchResultItem {
-  id: string;
-  type: 'judge' | 'prosecutor' | 'attorney' | 'legislator' | 'case';
-  name: string;
-  court?: string;
-  office?: string;
-  jurisdiction: string;
-  score?: number;
-  scoreType?: string;
-  barNumber?: string;
-  party?: string;
-  chamber?: string;
-  state?: string;
-}
-
-export interface SearchResults {
-  judges: SearchResultItem[];
-  attorneys: SearchResultItem[];
-  prosecutors: SearchResultItem[];
-  legislators: SearchResultItem[];
-  cases: SearchResultItem[];
-}
+/* ------------------------------------------------------------------ Auth */
+// Auth still goes through the Benchmark Justice backend.
 
 export interface AuthUser {
   id: string;
@@ -106,93 +13,254 @@ export interface AuthResponse {
   user: AuthUser;
 }
 
-export interface CaseTypeBreakdown {
-  caseType: string;
-  count?: number;
-  caseCount?: number;
-  sampleSize?: number;
-  favorableRate?: number;
-}
+/* ---------------------------------------------------------------- Search */
 
-export interface FilingStep {
-  stepNumber: number;
-  date: string;
-  entryNumber?: number;
-  title: string;
-  description: string;
-  filedBy?: string;
-  actionType: 'FILING' | 'MOTION' | 'ORDER' | 'DISPOSITION' | 'VERDICT' | string;
-  documentUrl?: string;
-}
+export type EntityType = 'judge' | 'attorney' | 'prosecutor' | 'legislator' | 'case';
 
-export interface CaseDetail {
+export interface SearchResultItem {
+  /** Route id. Cases use "cluster:<id>" or "docket:<id>". */
   id: string;
+  type: EntityType;
+  name: string;
+  /** Secondary line (court, office, party · state…). */
+  subtitle?: string;
+  court?: string;
+  jurisdiction?: string;
+  date?: string | null;
+  /** Small tag shown on the row, e.g. "Opinion", "Docket", "D-CA". */
+  tag?: string;
+  imageUrl?: string;
+}
+
+export interface SearchResults {
+  judges: SearchResultItem[];
+  attorneys: SearchResultItem[];
+  prosecutors: SearchResultItem[];
+  legislators: SearchResultItem[];
+  cases: SearchResultItem[];
+  /** Total matches reported by the source, when known. */
+  totals: Partial<Record<'judges' | 'attorneys' | 'prosecutors' | 'legislators' | 'cases', number>>;
+  /** Per-source failures (other sources may still have results). */
+  errors: string[];
+}
+
+/* ---------------------------------------------------------------- Courts */
+
+export interface Court {
+  id: string;
+  shortName: string;
+  fullName: string;
+  citation: string;
+  jurisdiction: string;
+  jurisdictionLabel: string;
+  url?: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  inUse?: boolean;
+}
+
+/* ----------------------------------------------------------- Case records */
+
+/** A row in a case list: either a case-law opinion cluster or a docket. */
+export interface CaseRecord {
+  id: string;
+  kind: 'opinion' | 'docket';
+  title: string;
+  court: string;
+  courtId?: string;
+  date?: string | null;
   docketNumber?: string;
-  caseName?: string;
-  plaintiffName?: string;
-  defendantName?: string;
-  plaintiffCounsel?: string;
-  defenseCounsel?: string;
-  presidingJudge?: string;
-  judgeId?: string;
-  courtName?: string;
-  jurisdiction: string;
-  caseType: string;
-  filingDate?: string;
-  resolutionDate?: string;
+  citations?: string[];
+  citeCount?: number;
+  /** Grouping label for filter chips (opinion type, nature of suit…). */
+  group?: string;
   status?: string;
-  courtListenerUrl?: string;
-  courtListenerDocketId?: number;
-  filingSteps?: FilingStep[];
+  snippet?: string;
+  /** Absolute CourtListener URL. */
+  url?: string;
 }
 
-export interface LiveIntelligenceDecision {
-  caseId?: string;
+/* ----------------------------------------------------------------- Judges */
+
+export interface JudgePosition {
+  id: string;
+  title: string;
+  court?: string;
+  courtId?: string;
+  dateNominated?: string | null;
+  dateConfirmation?: string | null;
+  dateStart?: string | null;
+  dateTermination?: string | null;
+  terminationReason?: string;
+  howSelected?: string;
+  appointer?: string;
+  isJudicial: boolean;
+}
+
+export interface JudgeProfile {
+  id: string;
+  name: string;
+  slug?: string;
+  photoUrl?: string;
+  dateOfBirth?: string | null;
+  dateOfDeath?: string | null;
+  birthplace?: string;
+  educations: { school: string; degree?: string; year?: number | null }[];
+  affiliations: { party: string; start?: string | null; end?: string | null }[];
+  abaRatings: { rating: string; year?: number | null }[];
+  positions: JudgePosition[];
+  appointers: string[];
+  selectionMethods: string[];
+  url: string;
+}
+
+/* -------------------------------------------------------------- Attorneys */
+
+export interface AttorneyProfile {
+  id: string;
+  name: string;
+  contact: string;
+  phone?: string;
+  email?: string;
+  fax?: string;
+  /** First line of the contact block — usually the firm or office. */
+  office?: string;
+  isGovernment: boolean;
+  roles: { docketId: string; role: number | null; partyId?: string }[];
+}
+
+/* ---------------------------------------------------------- Case details */
+
+export interface ClusterDetail {
+  id: string;
+  caseName: string;
+  caseNameFull?: string;
+  dateFiled?: string | null;
+  judges?: string;
+  citations: string[];
+  status?: string;
+  citationCount?: number;
+  syllabus?: string;
+  summary?: string;
+  proceduralHistory?: string;
+  posture?: string;
+  disposition?: string;
+  attorneys?: string;
+  docketId?: string;
+  subOpinionIds: string[];
+  url: string;
+}
+
+export interface DocketDetail {
+  id: string;
+  caseName: string;
+  docketNumber?: string;
+  courtId?: string;
+  dateFiled?: string | null;
+  dateTerminated?: string | null;
+  dateLastFiling?: string | null;
+  dateArgued?: string | null;
+  assignedTo?: string;
+  assignedToId?: string;
+  referredTo?: string;
+  cause?: string;
+  natureOfSuit?: string;
+  juryDemand?: string;
+  jurisdictionType?: string;
+  appealFrom?: string;
+  clusterIds: string[];
+  url: string;
+}
+
+export interface OpinionMeta {
+  id: string;
+  type: string;
+  author?: string;
+  authorId?: string;
+  joinedBy?: string;
+  perCuriam: boolean;
+  downloadUrl?: string;
+}
+
+export interface DocketParty {
+  id: string;
+  name: string;
+  roles: string[];
+  attorneys: string[];
+}
+
+export interface DocketEntry {
+  id: string;
+  entryNumber?: number | null;
+  dateFiled?: string | null;
+  description: string;
+  documents: { id: string; description: string; number?: string; pageCount?: number | null; available: boolean; url?: string }[];
+}
+
+/* ------------------------------------------------------------- Congress */
+
+export interface LegislatorTerm {
+  chamber: string;
+  congress?: number;
+  startYear?: number;
+  endYear?: number | null;
+  memberType?: string;
+  stateCode?: string;
+  district?: number | null;
+}
+
+export interface LegislatorProfile {
+  bioguideId: string;
+  name: string;
+  honorific?: string;
+  party: string;
+  partyAbbr?: string;
+  state: string;
+  district?: number | null;
+  chamber: string;
+  imageUrl?: string;
+  website?: string;
+  birthYear?: string;
+  office?: { address?: string; phone?: string };
+  terms: LegislatorTerm[];
+  sponsoredCount: number;
+  cosponsoredCount: number;
+  currentMember: boolean;
+  url: string;
+}
+
+export interface Bill {
+  id: string;
+  congress?: number;
+  type?: string;
+  number?: string;
+  title: string;
+  introducedDate?: string | null;
+  latestAction?: { date?: string; text: string };
+  policyArea?: string;
+  becameLaw: boolean;
+  url?: string;
+}
+
+/* -------------------------------------------------------------- Dashboard */
+
+export interface CoverageStats {
+  opinions?: number;
+  dockets?: number;
+  judges?: number;
+  courts?: number;
+  attorneys?: number;
+  legislators?: number;
+}
+
+export interface FeedItem {
+  id: string;
+  kind: 'opinion' | 'docket';
   title: string;
   court: string;
-  caseType?: string;
-  outcome?: string;
-  deviation: string;
-  timeAgo: string;
-  route?: string;
+  date?: string | null;
+  detail?: string;
+  judge?: string;
+  citeCount?: number;
+  routeId: string;
 }
-
-export interface LiveIntelligenceJudge {
-  id: string;
-  name: string;
-  court: string;
-  casesAnalyzed: number;
-  score: number;
-  trend: number[];
-  route?: string;
-}
-
-export interface LiveIntelligenceAttorney {
-  id: string;
-  name: string;
-  firm: string;
-  jurisdiction: string;
-  casesAnalyzed: number;
-  favorableRate: string;
-  route?: string;
-}
-
-export interface LiveIntelligenceData {
-  recentDecision?: LiveIntelligenceDecision;
-  trendingJudge?: LiveIntelligenceJudge;
-  attorneyPerformance?: LiveIntelligenceAttorney;
-}
-
-export interface CoverageStatsData {
-  casesAnalyzed?: string;
-  activeBenchJurists?: string;
-  attorneysAnalyzed?: string;
-  prosecutorsTracked?: string;
-  courtsCovered?: string;
-  judicialDataPoints?: string;
-  casesCount?: number;
-  judgesCount?: number;
-  attorneysCount?: number;
-  prosecutorsCount?: number;
-}
-

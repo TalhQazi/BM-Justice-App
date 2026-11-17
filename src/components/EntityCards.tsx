@@ -1,316 +1,188 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useNavigation } from '@react-navigation/native';
-import Svg, { Path, Circle, Rect } from 'react-native-svg';
-import { colors } from '../theme/colors';
-import { api } from '../services/api';
-import type { CoverageStatsData } from '../types';
+import { ArrowRight, Briefcase, FileText, Gavel, Landmark, ShieldCheck, Vote } from 'lucide-react-native';
+import type { LucideIcon } from 'lucide-react-native';
+import type { ToneKey } from '../theme/themes';
+import { useTheme } from '../theme/ThemeProvider';
+import { useCoverageStats } from '../hooks/useCoverageStats';
+import { formatCount } from '../utils/format';
+import { AppText, Badge, Card, IconTile, PressableScale, SectionHeader, enterUp } from './ui';
+
+type Category = 'judges' | 'attorneys' | 'prosecutors' | 'legislators' | 'cases' | 'courts';
 
 interface EntityCardsProps {
-  onSelectCategory?: (category: 'judges' | 'attorneys' | 'prosecutors' | 'legislators' | 'cases' | 'courts') => void;
+  onSelectCategory?: (category: Category) => void;
 }
 
 export default function EntityCards({ onSelectCategory }: EntityCardsProps) {
   const navigation = useNavigation<any>();
-  const [stats, setStats] = useState<CoverageStatsData | null>(null);
+  const t = useTheme();
+  const { stats, loading } = useCoverageStats();
+  const live = (n: number | undefined, unit: string) => (loading ? 'Loading…' : n === undefined ? 'Unavailable' : `${formatCount(n)} ${unit}`);
 
-  useEffect(() => {
-    let mounted = true;
-    api
-      .getCoverageStats()
-      .then((data) => {
-        if (mounted && data) {
-          setStats(data);
-        }
-      })
-      .catch(() => {});
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  const handleSelect = (category: string) => {
+  const handleSelect = (category: Category) => {
     if (onSelectCategory) {
-      onSelectCategory(category as any);
+      onSelectCategory(category);
+    } else if (category === 'courts') {
+      navigation.navigate('Home', { screen: 'Courts' });
     } else {
       navigation.navigate('SearchResults', { initialCategory: category });
     }
   };
 
-  // Quick 5-Entity Shortcuts matching Website Grid
-  const quickEntities = [
-    {
-      id: 'judges',
-      label: 'JUDGES',
-      icon: (
-        <Svg width={28} height={28} viewBox="0 0 24 24" fill="none">
-          <Circle cx={12} cy={7} r={3.2} stroke="#3B82F6" strokeWidth={1.8} />
-          <Path d="M6.5 15a5.5 5.5 0 0 1 11 0" stroke="#3B82F6" strokeWidth={1.8} strokeLinecap="round" />
-          <Path d="M4 16.5h16" stroke="#3B82F6" strokeWidth={1.8} />
-          <Path d="M5.5 16.5L3.5 20.5h17l-2-4" stroke="#3B82F6" strokeWidth={1.8} strokeLinejoin="round" />
-          <Path d="M2 21h20" stroke="#3B82F6" strokeWidth={1.8} strokeLinecap="round" />
-        </Svg>
-      ),
-    },
-    {
-      id: 'attorneys',
-      label: 'LAWYERS',
-      icon: (
-        <Svg width={28} height={28} viewBox="0 0 24 24" fill="none">
-          <Rect x={4} y={7} width={16} height={13} rx={2} stroke="#3B82F6" strokeWidth={1.8} />
-          <Path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" stroke="#3B82F6" strokeWidth={1.8} />
-          <Path d="M12 11v4M4 12h16" stroke="#3B82F6" strokeWidth={1.5} />
-        </Svg>
-      ),
-    },
-    {
-      id: 'prosecutors',
-      label: 'PROSECUTORS',
-      icon: (
-        <Svg width={28} height={28} viewBox="0 0 24 24" fill="none">
-          <Path d="M12 3v18M6 8l6-5 6 5M6 8a4 4 0 0 0 0 8M18 8a4 4 0 0 1 0 8" stroke="#3B82F6" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-        </Svg>
-      ),
-    },
-    {
-      id: 'courts',
-      label: 'COURTS',
-      icon: (
-        <Svg width={28} height={28} viewBox="0 0 24 24" fill="none">
-          <Path d="M3 21h18M4 18h16M12 2l8 6H4l8-6z" stroke="#3B82F6" strokeWidth={1.8} />
-          <Path d="M6 8v10M10 8v10M14 8v10M18 8v10" stroke="#3B82F6" strokeWidth={1.8} />
-        </Svg>
-      ),
-    },
-    {
-      id: 'cases',
-      label: 'CASES',
-      icon: (
-        <Svg width={28} height={28} viewBox="0 0 24 24" fill="none">
-          <Path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="#3B82F6" strokeWidth={1.8} />
-          <Path d="M22 6l-10 7L2 6" stroke="#3B82F6" strokeWidth={1.8} strokeLinecap="round" />
-        </Svg>
-      ),
-    },
+  const quickEntities: { id: Category; label: string; icon: LucideIcon; tone: ToneKey }[] = [
+    { id: 'judges', label: 'Judges', icon: Gavel, tone: 'gold' },
+    { id: 'attorneys', label: 'Lawyers', icon: Briefcase, tone: 'info' },
+    { id: 'prosecutors', label: 'Prosecutors', icon: ShieldCheck, tone: 'plum' },
+    { id: 'courts', label: 'Courts', icon: Landmark, tone: 'warning' },
+    { id: 'cases', label: 'Cases', icon: FileText, tone: 'teal' },
   ];
 
-  const directoryCards = [
+  const directoryCards: {
+    id: Category;
+    title: string;
+    subtitle: string;
+    desc: string;
+    count: string;
+    tone: ToneKey;
+    icon: LucideIcon;
+  }[] = [
     {
       id: 'judges',
       title: 'Judges & Justices',
-      subtitle: 'Benchmark Judicial Index (BJI)',
-      desc: 'Track judicial rulings, tenure trends, and deviation scores.',
-      count: stats?.activeBenchJurists || '12,450+ Indexed',
-      color: '#4FD675',
-      icon: (
-        <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-          <Circle cx={12} cy={6} r={3.2} stroke="#4FD675" strokeWidth={1.8} />
-          <Path d="M7 11.5c0-1.5 2.2-2.5 5-2.5s5 1 5 2.5v2H7v-2z" fill="#4FD675" fillOpacity={0.2} stroke="#4FD675" strokeWidth={1.5} />
-          <Rect x={3} y={15} width={18} height={4} rx={1} stroke="#4FD675" strokeWidth={1.8} />
-          <Path d="M9 19v2.5M15 19v2.5M6 22h12" stroke="#4FD675" strokeWidth={1.8} strokeLinecap="round" />
-        </Svg>
-      ),
+      subtitle: 'Judicial Profiles & Opinions',
+      desc: 'Positions, appointments, education and authored opinions.',
+      count: live(stats.judges, 'indexed'),
+      tone: 'success',
+      icon: Gavel,
     },
     {
       id: 'attorneys',
       title: 'Trial & Appellate Attorneys',
-      subtitle: 'Attorney Performance Index (API)',
-      desc: 'Win rates, settlement ratios, and co-counsel metrics.',
-      count: stats?.attorneysAnalyzed || '98,300+ Active',
-      color: '#4D7CFE',
-      icon: (
-        <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-          <Rect x={4} y={7} width={16} height={13} rx={2} stroke="#4D7CFE" strokeWidth={1.8} />
-          <Path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" stroke="#4D7CFE" strokeWidth={1.8} />
-          <Path d="M12 11v4M4 12h16" stroke="#4D7CFE" strokeWidth={1.5} />
-        </Svg>
-      ),
+      subtitle: 'Counsel of Record',
+      desc: 'Contact details and every federal docket they appeared on.',
+      count: live(stats.attorneys, 'on record'),
+      tone: 'info',
+      icon: Briefcase,
     },
     {
       id: 'prosecutors',
       title: 'Public Prosecutors & DAs',
-      subtitle: 'Prosecutorial Disposition Index (PDI)',
-      desc: 'Plea bargains, conviction rates, and public accountability.',
-      count: stats?.prosecutorsTracked || '2,850+ Profiled',
-      color: '#A855F7',
-      icon: (
-        <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-          <Path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="#A855F7" strokeWidth={1.8} />
-          <Path d="M9 12l2 2 4-4" stroke="#A855F7" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-        </Svg>
-      ),
+      subtitle: 'Government Counsel',
+      desc: 'Attorneys listed under U.S. Attorney, DA and DOJ offices.',
+      count: 'Search by name',
+      tone: 'plum',
+      icon: ShieldCheck,
     },
     {
       id: 'cases',
       title: 'Audited Cases & Dockets',
-      subtitle: 'CourtListener Public Verification',
-      desc: 'Federal and State appellate rulings, dockets, and trial filings.',
-      count: stats?.casesAnalyzed || '185,000+ Dockets',
-      color: '#38BDF8',
-      icon: (
-        <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-          <Path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="#38BDF8" strokeWidth={1.8} />
-          <Path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke="#38BDF8" strokeWidth={1.8} strokeLinecap="round" />
-        </Svg>
-      ),
+      subtitle: 'Case Law & Federal Dockets',
+      desc: 'Published opinions, federal dockets, filings and parties.',
+      count: live(stats.opinions, 'opinions'),
+      tone: 'teal',
+      icon: FileText,
     },
     {
       id: 'legislators',
       title: 'Members of Congress',
-      subtitle: 'Legislative Voting Index (LVI)',
-      desc: 'Roll call records, bipartisan alignment, and bill sponsorship.',
-      count: '535 Tracked',
-      color: '#FBBF24',
-      icon: (
-        <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-          <Path d="M3 21h18M4 18h16M12 2l8 6H4l8-6z" stroke="#FBBF24" strokeWidth={1.8} />
-          <Path d="M6 8v10M10 8v10M14 8v10M18 8v10" stroke="#FBBF24" strokeWidth={1.8} />
-        </Svg>
-      ),
+      subtitle: 'Members & Legislation',
+      desc: 'Terms of service, sponsored bills and legislative activity.',
+      count: live(stats.legislators, 'current members'),
+      tone: 'warning',
+      icon: Vote,
     },
   ];
 
   return (
-    <View style={styles.container}>
-      {/* 1. Quick 5 Shortcuts Row */}
-      <View style={styles.quickRow}>
-        {quickEntities.map((item) => (
-          <TouchableOpacity
-            key={item.id}
-            style={styles.quickCard}
-            activeOpacity={0.7}
-            onPress={() => handleSelect(item.id)}
-          >
-            <View style={styles.quickIconBox}>{item.icon}</View>
-            <Text style={styles.quickLabel}>{item.label}</Text>
-          </TouchableOpacity>
+    <View>
+      {/* Quick category shortcuts */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.quickRow}
+        style={styles.quickScroll}
+      >
+        {quickEntities.map((item, i) => (
+          <Animated.View key={item.id} entering={enterUp(i)}>
+            <PressableScale
+              haptic
+              scaleTo={0.94}
+              onPress={() => handleSelect(item.id)}
+              accessibilityLabel={`Browse ${item.label}`}
+              style={[
+                styles.quickCard,
+                { backgroundColor: t.colors.surface, borderColor: t.colors.border },
+                t.shadow(1),
+              ]}
+            >
+              <IconTile icon={item.icon} tone={item.tone} size={44} />
+              <AppText variant="callout" color={t.colors.text} style={{ marginTop: 8 }} numberOfLines={1}>
+                {item.label}
+              </AppText>
+            </PressableScale>
+          </Animated.View>
         ))}
-      </View>
+      </ScrollView>
 
-      {/* 2. Detailed Legal Directories List */}
-      <Text style={styles.sectionHeader}>EXPLORE LEGAL DIRECTORIES</Text>
+      {/* Directory cards */}
+      <SectionHeader eyebrow="Research" title="Legal Directories" style={{ marginTop: 28 }} />
       <View style={styles.list}>
-        {directoryCards.map((c) => (
-          <TouchableOpacity
-            key={c.id}
-            style={styles.card}
-            activeOpacity={0.7}
-            onPress={() => handleSelect(c.id)}
-          >
-            <View style={styles.cardTop}>
-              <View style={styles.iconContainer}>{c.icon}</View>
-              <View style={styles.badge}>
-                <Text style={[styles.badgeText, { color: c.color }]}>{c.count}</Text>
-              </View>
-            </View>
-            <Text style={styles.title}>{c.title}</Text>
-            <Text style={[styles.subtitle, { color: c.color }]}>{c.subtitle}</Text>
-            <Text style={styles.desc}>{c.desc}</Text>
-          </TouchableOpacity>
-        ))}
+        {directoryCards.map((c, i) => {
+          const tone = t.tone(c.tone);
+          return (
+            <Animated.View key={c.id} entering={enterUp(i, 80)}>
+              <Card onPress={() => handleSelect(c.id)} haptic accessibilityLabel={c.title}>
+                <View style={styles.cardTop}>
+                  <IconTile icon={c.icon} tone={c.tone} size={46} />
+                  <View style={{ flex: 1 }}>
+                    <AppText variant="h3" numberOfLines={1}>
+                      {c.title}
+                    </AppText>
+                    <AppText variant="caption" color={tone.fg} style={{ marginTop: 2, fontFamily: t.fonts.sansSemi }} numberOfLines={1}>
+                      {c.subtitle}
+                    </AppText>
+                  </View>
+                </View>
+                <AppText variant="body" style={{ marginTop: 12 }}>
+                  {c.desc}
+                </AppText>
+                <View style={[styles.cardFooter, { borderTopColor: t.colors.divider }]}>
+                  <Badge label={c.count} tone={c.tone} dot />
+                  <View style={[styles.arrow, { backgroundColor: t.colors.surfaceSunken }]}>
+                    <ArrowRight size={15} color={t.colors.textSecondary} strokeWidth={2.2} />
+                  </View>
+                </View>
+              </Card>
+            </Animated.View>
+          );
+        })}
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    marginVertical: 12,
-  },
-  quickRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-    gap: 6,
-  },
+  quickScroll: { marginHorizontal: -4 },
+  quickRow: { gap: 10, paddingHorizontal: 4, paddingVertical: 4 },
   quickCard: {
-    flex: 1,
-    backgroundColor: '#070F1E',
-    borderWidth: 1,
-    borderColor: '#172338',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 4,
+    width: 92,
+    paddingVertical: 14,
     alignItems: 'center',
-    justifyContent: 'center',
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  quickIconBox: {
-    marginBottom: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  quickLabel: {
-    fontSize: 9,
-    fontWeight: '900',
-    color: '#F5F7FA',
-    letterSpacing: 0.5,
-    textAlign: 'center',
-    fontFamily: 'monospace',
-  },
-  sectionHeader: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: colors.textMuted,
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-    marginBottom: 10,
-    fontFamily: 'monospace',
-  },
-  list: {
-    gap: 12,
-  },
-  card: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 14,
-    padding: 16,
-  },
-  cardTop: {
+  list: { gap: 12 },
+  cardTop: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  cardFooter: {
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 10,
   },
-  iconContainer: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badge: {
-    backgroundColor: '#070F1E',
-    borderWidth: 1,
-    borderColor: '#172338',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 20,
-  },
-  badgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-    fontFamily: 'monospace',
-  },
-  title: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: colors.text,
-    marginBottom: 2,
-  },
-  subtitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    marginBottom: 6,
-    fontFamily: 'monospace',
-  },
-  desc: {
-    fontSize: 12,
-    color: colors.textMuted,
-    lineHeight: 18,
-  },
+  arrow: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
 });

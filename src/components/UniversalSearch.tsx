@@ -1,290 +1,235 @@
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  StyleSheet,
-  TouchableOpacity,
-  ActivityIndicator,
-  ScrollView,
-} from 'react-native';
+import React, { useCallback, useState, useRef, useMemo } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { useNavigation } from '@react-navigation/native';
-import { colors } from '../theme/colors';
-import { api } from '../services/api';
+import { ArrowRight, ChevronRight, FileSearch, SearchX } from 'lucide-react-native';
+import { searchAll } from '../services/search';
+import { friendlyError } from './ErrorState';
 import type { SearchResults, SearchResultItem } from '../types';
+import { useTheme } from '../theme/ThemeProvider';
+import { cleanDocketQuery, isCaseDocketQuery } from '../utils/docketValidator';
+import {
+  ENTITY_META,
+  SEARCH_FILTERS,
+  SearchFilterKey,
+  flattenResults,
+  filterToCategory,
+  navigateToResult,
+  resultSubtitle,
+} from '../utils/entities';
+import { AppText, Chip, IconTile, PressableScale, SearchField, Skeleton } from './ui';
 
 export default function UniversalSearch() {
   const navigation = useNavigation<any>();
+  const t = useTheme();
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<SearchResults | null>(null);
-  const [selectedFilter, setSelectedFilter] = useState<'ALL' | 'JUDGE' | 'ATTORNEY' | 'PROSECUTOR' | 'LEGISLATOR'>('ALL');
-  const timerRef = useRef<any>(null);
+  const [selectedFilter, setSelectedFilter] = useState<SearchFilterKey>('JUDGE');
+  /** The query that was last searched (null until the user taps Search). */
+  const [submitted, setSubmitted] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const seq = useRef(0);
 
-  useEffect(() => {
-    if (!query.trim()) {
-      setResults(null);
-      setLoading(false);
-      return;
-    }
-
+  // Nothing is fetched while typing — only when the user taps Search.
+  const runSearch = useCallback(async (q: string, filter: SearchFilterKey) => {
+    const id = ++seq.current;
+    setSubmitted(q);
     setLoading(true);
-    if (timerRef.current) clearTimeout(timerRef.current);
-
-    timerRef.current = setTimeout(async () => {
-      try {
-        const res = await api.search(query);
-        setResults(res);
-      } catch (err) {
-        console.error('Search error:', err);
-      } finally {
-        setLoading(false);
+    setError(null);
+    try {
+      const res = await searchAll(q, filter);
+      if (id === seq.current) setResults(res);
+    } catch (err) {
+      if (id === seq.current) {
+        setResults(null);
+        setError(friendlyError(err).message);
       }
-    }, 280);
+    } finally {
+      if (id === seq.current) setLoading(false);
+    }
+  }, []);
 
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, [query]);
-
-  const allItems: SearchResultItem[] = React.useMemo(() => {
-    if (!results) return [];
-    const arr: SearchResultItem[] = [];
-    if (selectedFilter === 'ALL' || selectedFilter === 'JUDGE') {
-      (results.judges || []).forEach((j) => arr.push({ ...j, type: 'judge' }));
+  const onChangeQuery = (v: string) => {
+    setQuery(v);
+    if (!v.trim()) {
+      seq.current++;
+      setSubmitted(null);
+      setResults(null);
+      setError(null);
+      setLoading(false);
     }
-    if (selectedFilter === 'ALL' || selectedFilter === 'ATTORNEY') {
-      (results.attorneys || []).forEach((a) => arr.push({ ...a, type: 'attorney' }));
-    }
-    if (selectedFilter === 'ALL' || selectedFilter === 'PROSECUTOR') {
-      (results.prosecutors || []).forEach((p) => arr.push({ ...p, type: 'prosecutor' }));
-    }
-    if (selectedFilter === 'ALL' || selectedFilter === 'LEGISLATOR') {
-      (results.legislators || []).forEach((l) => arr.push({ ...l, type: 'legislator' }));
-    }
-    if (selectedFilter === 'ALL' || selectedFilter === 'CASE') {
-      (results.cases || []).forEach((c) => arr.push({ ...c, type: 'case' }));
-    }
-    return arr;
-  }, [results, selectedFilter]);
-
-  const handleSelectItem = (item: SearchResultItem) => {
-    setQuery('');
-    setResults(null);
-    if (item.type === 'judge') navigation.navigate('JudgeProfile', { id: item.id });
-    else if (item.type === 'attorney') navigation.navigate('AttorneyProfile', { id: item.id });
-    else if (item.type === 'prosecutor') navigation.navigate('ProsecutorProfile', { id: item.id });
-    else if (item.type === 'legislator') navigation.navigate('LegislatorProfile', { id: item.id });
-    else if (item.type === 'case') navigation.navigate('CaseDetail', { id: item.id });
   };
 
-  const filters = [
-    { key: 'ALL', label: 'All' },
-    { key: 'JUDGE', label: 'Judges' },
-    { key: 'ATTORNEY', label: 'Attorneys' },
-    { key: 'PROSECUTOR', label: 'Prosecutors' },
-    { key: 'CASE', label: 'Cases' },
-    { key: 'LEGISLATOR', label: 'Congress' },
-  ];
+  const onSelectFilter = (f: SearchFilterKey) => {
+    setSelectedFilter(f);
+    // Re-run only if a search has already been made.
+    if (submitted) runSearch(submitted, f);
+  };
+
+  const allItems = useMemo(() => flattenResults(results, selectedFilter), [results, selectedFilter]);
+  const looksLikeDocket = useMemo(() => isCaseDocketQuery(query), [query]);
+
+  const reset = () => {
+    setQuery('');
+    setSubmitted(null);
+    setResults(null);
+  };
+
+  const handleSelectItem = (item: SearchResultItem) => {
+    reset();
+    navigateToResult(navigation, item);
+  };
+
+  const openDocket = () => {
+    const id = cleanDocketQuery(query);
+    reset();
+    navigation.navigate('CaseDetail', { id });
+  };
+
+  const seeAll = () => {
+    const q = submitted ?? query.trim();
+    reset();
+    navigation.navigate('SearchResults', { query: q, initialCategory: filterToCategory(selectedFilter) });
+  };
+
+  const showDropdown = submitted !== null || looksLikeDocket;
 
   return (
     <View style={styles.container}>
-      {/* Search Input Box */}
-      <View style={styles.searchBox}>
-        <TextInput
-          style={styles.input}
-          placeholder="Search judges, attorneys, prosecutors..."
-          placeholderTextColor={colors.textSubtle}
-          value={query}
-          onChangeText={setQuery}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-        {loading ? (
-          <ActivityIndicator size="small" color={colors.brass} style={styles.loader} />
-        ) : query.length > 0 ? (
-          <TouchableOpacity onPress={() => setQuery('')} style={styles.clearButton}>
-            <Text style={styles.clearText}>✕</Text>
-          </TouchableOpacity>
-        ) : null}
-      </View>
+      <SearchField
+        size="lg"
+        value={query}
+        onChangeText={onChangeQuery}
+        loading={loading}
+        placeholder="Search judges, attorneys, cases, dockets…"
+        onSubmit={(q) => runSearch(q, selectedFilter)}
+        accessibilityLabel="Search legal records"
+      />
 
-      {/* Filter Tabs */}
-      <View style={styles.filterRow}>
-        {filters.map((f) => (
-          <TouchableOpacity
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.filterRow}
+        keyboardShouldPersistTaps="handled"
+      >
+        {SEARCH_FILTERS.map((f) => (
+          <Chip
             key={f.key}
-            style={[styles.filterPill, selectedFilter === f.key && styles.filterPillActive]}
-            onPress={() => setSelectedFilter(f.key as any)}
-          >
-            <Text style={[styles.filterText, selectedFilter === f.key && styles.filterTextActive]}>
-              {f.label}
-            </Text>
-          </TouchableOpacity>
+            label={f.label}
+            selected={selectedFilter === f.key}
+            onPress={() => onSelectFilter(f.key)}
+          />
         ))}
-      </View>
+      </ScrollView>
 
-      {/* Live Autocomplete Results Dropdown */}
-      {query.trim().length > 0 && (
-        <View style={styles.resultsDropdown}>
-          {loading && allItems.length === 0 ? (
-            <View style={styles.emptyState}>
-              <ActivityIndicator size="small" color={colors.brass} />
-              <Text style={styles.emptyText}>Searching court records...</Text>
+      {showDropdown && (
+        <Animated.View
+          entering={FadeIn.duration(180)}
+          exiting={FadeOut.duration(120)}
+          layout={LinearTransition.duration(220)}
+          style={[
+            styles.dropdown,
+            { backgroundColor: t.colors.surfaceElevated, borderColor: t.colors.border },
+            t.shadow(3),
+          ]}
+        >
+          {looksLikeDocket && (
+            <PressableScale onPress={openDocket} haptic style={[styles.docketRow, { borderBottomColor: t.colors.divider }]}>
+              <IconTile icon={FileSearch} tone="teal" size={36} />
+              <View style={{ flex: 1 }}>
+                <AppText variant="overline" color={t.colors.teal} style={{ fontSize: 9.5 }}>
+                  Docket / citation detected
+                </AppText>
+                <AppText variant="title" numberOfLines={1}>
+                  Open {cleanDocketQuery(query)}
+                </AppText>
+              </View>
+              <ArrowRight size={18} color={t.colors.teal} />
+            </PressableScale>
+          )}
+
+          {submitted === null ? null : loading && allItems.length === 0 ? (
+            <View style={{ padding: 14, gap: 12 }}>
+              {[0, 1, 2].map((i) => (
+                <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <Skeleton width={36} height={36} radius={11} />
+                  <View style={{ flex: 1, gap: 6 }}>
+                    <Skeleton width="60%" height={12} />
+                    <Skeleton width="38%" height={10} />
+                  </View>
+                </View>
+              ))}
+              <AppText variant="caption" align="center">
+                Searching court records…
+              </AppText>
             </View>
           ) : allItems.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>No matching legal records found for &quot;{query}&quot;</Text>
+            <View style={styles.empty}>
+              <SearchX size={20} color={error ? t.colors.danger : t.colors.textTertiary} />
+              <AppText variant="caption" align="center" style={{ marginTop: 6 }}>
+                {error ? error : `No matching records found for “${submitted}”`}
+              </AppText>
             </View>
           ) : (
-            <ScrollView style={styles.resultsList} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-              {allItems.map((item) => (
-                <TouchableOpacity
-                  key={`${item.type}-${item.id}`}
-                  style={styles.resultItem}
-                  onPress={() => handleSelectItem(item)}
-                >
-                  <View style={styles.itemHeader}>
-                    <Text style={styles.itemName}>{item.name}</Text>
-                    <View style={styles.typeBadge}>
-                      <Text style={styles.typeBadgeText}>{item.type.toUpperCase()}</Text>
-                    </View>
-                  </View>
-                  <Text style={styles.itemCourt}>
-                    {item.court || item.office || (item.chamber ? `${item.party} · ${item.state}` : item.jurisdiction)}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+            <>
+              <ScrollView style={styles.list} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                {allItems.map((item, i) => {
+                  const meta = ENTITY_META[item.type];
+                  return (
+                    <Animated.View key={`${item.type}-${item.id}`} entering={FadeIn.delay(Math.min(i, 8) * 30).duration(200)}>
+                      <PressableScale onPress={() => handleSelectItem(item)} style={styles.resultItem} scaleTo={0.985}>
+                        <IconTile icon={meta.icon} tone={meta.tone} size={36} />
+                        <View style={{ flex: 1 }}>
+                          <AppText variant="title" numberOfLines={1}>
+                            {item.name}
+                          </AppText>
+                          <AppText variant="caption" numberOfLines={1} style={{ marginTop: 1 }}>
+                            {resultSubtitle(item)}
+                          </AppText>
+                        </View>
+                        <AppText variant="overline" color={t.tone(meta.tone).fg} style={{ fontSize: 9 }}>
+                          {meta.label}
+                        </AppText>
+                      </PressableScale>
+                    </Animated.View>
+                  );
+                })}
+              </ScrollView>
+              <PressableScale onPress={seeAll} haptic style={[styles.seeAll, { borderTopColor: t.colors.divider }]}>
+                <AppText variant="callout" color={t.colors.accent}>
+                  See all {allItems.length} results
+                </AppText>
+                <ChevronRight size={15} color={t.colors.accent} />
+              </PressableScale>
+            </>
           )}
-        </View>
+        </Animated.View>
       )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    marginVertical: 12,
-    zIndex: 100,
-  },
-  searchBox: {
+  container: { zIndex: 100 },
+  filterRow: { gap: 8, paddingTop: 12, paddingBottom: 2, paddingRight: 8 },
+  dropdown: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 18, marginTop: 10, overflow: 'hidden' },
+  docketRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.card,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 3,
+    gap: 12,
+    padding: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  input: {
-    flex: 1,
-    height: 48,
-    color: colors.text,
-    fontSize: 14,
-  },
-  loader: {
-    marginLeft: 8,
-  },
-  clearButton: {
-    padding: 6,
-  },
-  clearText: {
-    color: colors.textMuted,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  filterRow: {
-    flexDirection: 'row',
-    gap: 6,
-    marginTop: 8,
-    flexWrap: 'wrap',
-  },
-  filterPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  filterPillActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  filterText: {
-    fontSize: 11,
-    color: colors.textMuted,
-    fontWeight: '600',
-    fontFamily: 'monospace',
-  },
-  filterTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '800',
-  },
-  resultsDropdown: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    marginTop: 6,
-    maxHeight: 240,
-    overflow: 'hidden',
-  },
-  resultsList: {
-    padding: 6,
-  },
-  resultItem: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 6,
-  },
-  itemHeader: {
+  list: { maxHeight: 300, paddingVertical: 4 },
+  resultItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, paddingVertical: 10 },
+  empty: { padding: 20, alignItems: 'center' },
+  seeAll: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  itemName: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  typeBadge: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  typeBadgeText: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: colors.brass,
-    fontFamily: 'monospace',
-  },
-  itemCourt: {
-    fontSize: 11,
-    color: colors.textMuted,
-    marginTop: 2,
-    fontFamily: 'monospace',
-  },
-  emptyState: {
-    padding: 16,
-    alignItems: 'center',
-  },
-  emptyText: {
-    fontSize: 12,
-    color: colors.textMuted,
-    fontFamily: 'monospace',
-    textAlign: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
 });

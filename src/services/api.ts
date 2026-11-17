@@ -1,19 +1,9 @@
-import { Platform, NativeModules } from 'react-native';
-import type {
-  Judge,
-  Attorney,
-  Prosecutor,
-  Legislator,
-  ScoreResult,
-  CaseSummary,
-  SearchResults,
-  AuthResponse,
-  AuthUser,
-  CaseTypeBreakdown,
-  CaseDetail,
-  LiveIntelligenceData,
-  CoverageStatsData,
-} from '../types';
+/**
+ * Benchmark Justice backend — now used for authentication only.
+ * All legal data comes from CourtListener (services/courtlistener.ts) and
+ * Congress.gov (services/congress.ts).
+ */
+import type { AuthResponse, AuthUser } from '../types';
 
 const PROD_BACKEND_URL = 'https://bmj-be.vercel.app';
 const LOCAL_BACKEND_URL = 'http://localhost:4000';
@@ -99,43 +89,8 @@ async function postJson<T>(path: string, body: any, token?: string): Promise<T> 
 }
 
 export const api = {
-  search: (q: string) => getJson<SearchResults>(`/search?q=${encodeURIComponent(q)}`),
-  getRecentIntelligence: () =>
-    getJson<LiveIntelligenceData>(`/intelligence/recent`)
-      .catch(() => getJson<LiveIntelligenceData>(`/search/intelligence`)),
-  getIntelligenceFeed: () =>
-    getJson<any[]>(`/intelligence/feed`)
-      .catch(() => []),
-  getCoverageStats: () => getJson<CoverageStatsData>(`/intelligence/stats`),
-
-  // Auth
   signup: (data: { email: string; name: string; password: string; role?: string }) =>
     postJson<AuthResponse>('/auth/signup', data),
-  login: (data: { email: string; password: string }) =>
-    postJson<AuthResponse>('/auth/login', data),
+  login: (data: { email: string; password: string }) => postJson<AuthResponse>('/auth/login', data),
   me: (token: string) => getJson<AuthUser>('/auth/me', token),
-
-  // Judges
-  judge: (id: string) => getJson<Judge>(`/judges/${id}`),
-  judgeScore: (id: string) => getJson<ScoreResult>(`/judges/${id}/score`),
-  judgeCases: (id: string) => getJson<CaseSummary[]>(`/judges/${id}/cases`),
-  judgeCaseTypes: (id: string) => getJson<CaseTypeBreakdown[]>(`/judges/${id}/case-types`),
-
-  // Attorneys
-  attorney: (id: string) => getJson<Attorney>(`/attorneys/${id}`),
-  attorneyScore: (id: string) => getJson<ScoreResult>(`/attorneys/${id}/score`),
-  attorneyCases: (id: string) => getJson<CaseSummary[]>(`/attorneys/${id}/cases`),
-  attorneyByCaseType: (id: string) => getJson<CaseTypeBreakdown[]>(`/attorneys/${id}/performance/case-types`),
-
-  // Prosecutors
-  prosecutor: (id: string) => getJson<Prosecutor>(`/prosecutors/${id}`),
-  prosecutorScore: (id: string) => getJson<ScoreResult>(`/prosecutors/${id}/score`),
-  prosecutorCases: (id: string) => getJson<CaseSummary[]>(`/prosecutors/${id}/cases`),
-
-  // Legislators
-  legislator: (id: string) => getJson<Legislator>(`/legislators/${id}`),
-  legislatorScore: (id: string) => getJson<ScoreResult>(`/legislators/${id}/score`),
-
-  // Cases
-  case: (id: string) => getJson<CaseDetail>(`/cases/${encodeURIComponent(id)}`),
 };

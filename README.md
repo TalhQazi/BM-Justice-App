@@ -27,6 +27,30 @@ Cross-platform mobile application for **Benchmark Justice™**, mirroring the ex
 
 ---
 
+## Live Data Sources
+
+All legal data is fetched live — there is no bundled or sample data.
+
+| Source | Used for |
+|---|---|
+| [CourtListener API v4](https://www.courtlistener.com/help/api/rest/v4/) | Judges, courts, case law, dockets, docket entries, parties, attorneys, citation lookup |
+| [Congress.gov API v3](https://api.congress.gov/) | Members of Congress, terms, sponsored legislation |
+| Benchmark Justice backend | Sign-in / sign-up only |
+
+### Configuration
+
+Copy `.env.example` to `.env` and fill in:
+
+```bash
+EXPO_PUBLIC_COURTLISTENER_TOKEN=   # https://www.courtlistener.com/profile/api/
+EXPO_PUBLIC_CONGRESS_API_KEY=      # https://api.data.gov/signup/ (DEMO_KEY used if empty)
+EXPO_PUBLIC_COURTLISTENER_RPM=5    # optional: client request budget per minute
+```
+
+Restart Metro with `npx expo start -c` after changing `.env`. `EXPO_PUBLIC_*` values are compiled into the app bundle.
+
+The app queues CourtListener requests to stay within the token's rate limit and caches responses on the device (30 min – 24 h depending on the data).
+
 ## How to Run
 
 ### 1. Ensure Backend is Running

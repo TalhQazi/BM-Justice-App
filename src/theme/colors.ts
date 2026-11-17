@@ -1,48 +1,47 @@
+import { palette } from './tokens';
+
+/**
+ * Legacy static palette, kept for backward compatibility with any external
+ * imports. New code should use `useTheme().colors`, which follows light/dark mode.
+ */
 export const colors = {
-  // Backgrounds (Deep Midnight & Navy Slate from Website)
-  background: '#050B14',
-  bgNavy: '#07111E',
-  surface: '#091421',
-  card: '#091421',
-  cardElevated: '#0E1A2B',
-  headerBg: '#050B14',
+  background: palette.navy950,
+  bgNavy: palette.navy900,
+  surface: palette.navy850,
+  card: palette.navy850,
+  cardElevated: palette.navy800,
+  headerBg: palette.navy950,
 
-  // Borders
-  border: 'rgba(120, 150, 190, 0.2)',
-  borderLight: '#1E293B',
-  borderGlow: 'rgba(77, 124, 254, 0.4)',
+  border: 'rgba(142,163,198,0.14)',
+  borderLight: palette.navy700,
+  borderGlow: 'rgba(194,161,90,0.4)',
 
-  // Brand Accents (Website Exact Palette)
-  primary: '#4D7CFE',
-  primaryBlue: '#4D7CFE',
-  primaryBlueHover: '#3B6BE8',
-  primarySoft: '#8EAFFC',
-  positiveGreen: '#4FD675',
-  negativeRed: '#FF5E68',
-  skyBlue: '#38BDF8',
-  purple: '#A855F7',
-  gold: '#FBBF24',
-  cyan: '#22D3EE',
+  primary: palette.gold500,
+  primaryBlue: palette.sapphireLight,
+  primaryBlueHover: palette.sapphire,
+  primarySoft: palette.gold300,
+  positiveGreen: palette.emeraldLight,
+  negativeRed: palette.crimsonLight,
+  skyBlue: palette.tealLight,
+  purple: palette.plumLight,
+  gold: palette.gold500,
+  cyan: palette.tealLight,
 
-  // Alias for backward compatibility
-  brass: '#4D7CFE',
-  brassLight: '#8EAFFC',
+  brass: palette.gold500,
+  brassLight: palette.gold300,
 
-  // Text
-  text: '#F5F7FA',
-  textPrimary: '#F5F7FA',
-  textMuted: '#A7B0BE',
-  textSubtle: '#64748B',
-  textDark: '#050B14',
+  text: palette.parchment,
+  textPrimary: palette.parchment,
+  textMuted: palette.navy300,
+  textSubtle: '#6E7F9C',
+  textDark: palette.navy950,
 
-  // Semantic Status
-  success: '#4FD675',
-  warning: '#FBBF24',
-  error: '#FF5E68',
-  info: '#4D7CFE',
+  success: palette.emeraldLight,
+  warning: palette.amberLight,
+  error: palette.crimsonLight,
+  info: palette.sapphireLight,
 
-  // Scores
-  conservative: '#FF5E68',
-  moderate: '#4D7CFE',
-  liberal: '#38BDF8',
+  conservative: palette.crimsonLight,
+  moderate: palette.gold500,
+  liberal: palette.sapphireLight,
 };

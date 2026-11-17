@@ -1,220 +1,212 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, Dimensions, TouchableOpacity, ScrollView } from 'react-native';
-import Svg, { Path, Circle, Line, Text as SvgText, Rect } from 'react-native-svg';
-import { colors } from '../theme/colors';
-import type { CaseSummary } from '../types';
+import React, { useEffect, useState } from 'react';
+import { LayoutChangeEvent, ScrollView, StyleSheet, View } from 'react-native';
+import Animated, { Easing, FadeIn, useAnimatedProps, useSharedValue, withTiming } from 'react-native-reanimated';
+import Svg, { Circle, Defs, Line, LinearGradient, Path, Rect, Stop, Text as SvgText } from 'react-native-svg';
+import { MoveHorizontal, TrendingUp } from 'lucide-react-native';
+import { useTheme } from '../theme/ThemeProvider';
+import { AppText, Card, EmptyState } from './ui';
 
-interface TrendGraphProps {
-  cases: CaseSummary[];
+const AnimatedPath = Animated.createAnimatedComponent(Path);
+
+export interface TrendPoint {
+  year: number;
+  value: number;
 }
 
-export default function TrendGraph({ cases }: TrendGraphProps) {
-  const [selectedPoint, setSelectedPoint] = useState<{ year: number; avg: number; count: number } | null>(null);
+interface TrendGraphProps {
+  points: TrendPoint[];
+  title: string;
+  /** Unit for tooltips, e.g. "opinions". */
+  unit: string;
+  /** Headline under the title; defaults to the total. */
+  headline?: string;
+}
 
-  // Group cases by year
-  const points = React.useMemo(() => {
-    const byYear = new Map<number, { sum: number; count: number }>();
-    for (const c of cases) {
-      if (c.normalizedOutcome === null) continue;
-      const yr = new Date(c.filingDate).getFullYear();
-      const current = byYear.get(yr) || { sum: 0, count: 0 };
-      current.sum += c.normalizedOutcome;
-      current.count += 1;
-      byYear.set(yr, current);
-    }
+/** Year-by-year activity chart drawn from live records (no sample data). */
+export default function TrendGraph({ points, title, unit, headline }: TrendGraphProps) {
+  const t = useTheme();
+  const [selectedPoint, setSelectedPoint] = useState<TrendPoint | null>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
 
-    let arr = Array.from(byYear.entries())
-      .sort(([a], [b]) => a - b)
-      .map(([year, { sum, count }]) => ({ year, avg: sum / count, count }));
+  const max = Math.max(1, ...points.map((p) => p.value));
+  const total = points.reduce((sum, p) => sum + p.value, 0);
 
-    if (arr.length < 2) {
-      arr = [
-        { year: 2022, avg: 0.72, count: 4 },
-        { year: 2023, avg: 0.68, count: 6 },
-        { year: 2024, avg: 0.75, count: 7 },
-      ];
-    }
-    return arr;
-  }, [cases]);
-
-  const containerWidth = Dimensions.get('window').width - 64;
   const isScrollable = points.length > 6;
-  const pointSpacing = 46;
+  const pointSpacing = 48;
   const width = isScrollable ? Math.max(containerWidth, points.length * pointSpacing) : containerWidth;
-  const height = 150;
-  const padX = isScrollable ? 24 : 20;
-  const padTop = 18;
+  const height = 170;
+  const padX = 22;
+  const padTop = 20;
   const padBottom = 34;
-
   const graphHeight = height - padTop - padBottom;
   const xStep = (width - padX * 2) / Math.max(1, points.length - 1);
-  const coords = points.map((p, idx) => {
-    const x = padX + idx * xStep;
-    const y = padTop + (1 - p.avg) * graphHeight;
-    return { ...p, x, y };
-  });
+  const coords = points.map((p, idx) => ({
+    ...p,
+    x: padX + idx * xStep,
+    y: padTop + (1 - p.value / max) * graphHeight,
+  }));
 
-  const path = coords
-    .map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`)
-    .join(' ');
+  const path = coords.map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ');
+  const area =
+    coords.length > 1
+      ? `${path} L ${coords[coords.length - 1].x.toFixed(1)} ${height - padBottom} L ${coords[0].x.toFixed(1)} ${height - padBottom} Z`
+      : '';
+  const pathLength = coords.reduce(
+    (len, c, i) => (i === 0 ? 0 : len + Math.hypot(c.x - coords[i - 1].x, c.y - coords[i - 1].y)),
+    0,
+  );
+
+  // Draw-in animation whenever the data set changes.
+  const draw = useSharedValue(0);
+  useEffect(() => {
+    draw.value = 0;
+    draw.value = withTiming(1, { duration: 900, easing: Easing.out(Easing.cubic) });
+    setSelectedPoint(null);
+  }, [points, containerWidth, draw]);
+
+  const lineProps = useAnimatedProps(() => ({ strokeDashoffset: pathLength * (1 - draw.value) }));
+
+  if (points.length < 2) {
+    return (
+      <Card>
+        <AppText variant="overline">{title}</AppText>
+        <EmptyState icon={TrendingUp} title="Not enough dated records to chart" style={{ paddingVertical: 18 }} />
+      </Card>
+    );
+  }
 
   return (
-    <View style={styles.card}>
+    <Card>
       <View style={styles.headerRow}>
-        <View style={styles.titleContainer}>
-          <Text style={styles.title}>OUTCOME TREND OVER TIME</Text>
-          {isScrollable && (
-            <Text style={styles.scrollHint}>Swipe &larr;&rarr;</Text>
-          )}
+        <View style={{ flex: 1 }}>
+          <AppText variant="overline">{title}</AppText>
+          <AppText variant="title" style={{ marginTop: 4 }}>
+            {headline ?? `${total.toLocaleString()} ${unit} across ${points.length} years`}
+          </AppText>
         </View>
-        {selectedPoint && (
-          <View style={styles.tooltip}>
-            <Text style={styles.tooltipText}>
-              {selectedPoint.year}: {(selectedPoint.avg * 100).toFixed(0)}% favorable ({selectedPoint.count} cases)
-            </Text>
+        {isScrollable ? (
+          <View style={[styles.hint, { backgroundColor: t.colors.surfaceSunken }]}>
+            <MoveHorizontal size={12} color={t.colors.textTertiary} />
+            <AppText variant="caption" style={{ fontSize: 10.5 }}>
+              Swipe
+            </AppText>
           </View>
+        ) : (
+          <TrendingUp size={18} color={t.colors.accent} />
         )}
       </View>
 
-      <View style={styles.graphWrapper}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={[styles.scrollContent, !isScrollable && { width: '100%' }]}
-        >
-          <Svg width={width} height={height}>
-            {/* Baseline guide line */}
-            <Line
-              x1={padX}
-              y1={padTop + graphHeight / 2}
-              x2={width - padX}
-              y2={padTop + graphHeight / 2}
-              stroke={colors.border}
-              strokeWidth={1}
-              strokeDasharray="4 4"
-            />
-
-            {/* Trend Curve Line */}
-            <Path d={path} fill="none" stroke={colors.brass} strokeWidth={2.4} />
-
-            {/* Interactive Point Circles & Year Labels */}
-            {coords.map((c) => {
-              const isSelected = selectedPoint?.year === c.year;
-              return (
-                <React.Fragment key={c.year}>
-                  {/* Vertical guide dashed line on selected point */}
-                  {isSelected && (
-                    <Line
-                      x1={c.x}
-                      y1={padTop}
-                      x2={c.x}
-                      y2={height - padBottom + 4}
-                      stroke={colors.brass}
-                      strokeWidth={1}
-                      strokeDasharray="2 2"
-                      opacity={0.6}
-                    />
-                  )}
-
-                  {/* Node Circle */}
-                  <Circle
-                    cx={c.x}
-                    cy={c.y}
-                    r={isSelected ? 6 : 4}
-                    fill={isSelected ? '#F59E0B' : colors.brass}
-                    stroke={colors.card}
-                    strokeWidth={2}
-                  />
-
-                  {/* Year Label aligned directly under each node */}
-                  <SvgText
-                    x={c.x}
-                    y={height - 10}
-                    fontSize={10}
-                    fontWeight={isSelected ? 'bold' : 'normal'}
-                    fontFamily="monospace"
-                    fill={isSelected ? colors.brass : colors.textSubtle}
-                    textAnchor="middle"
-                  >
-                    {c.year}
-                  </SvgText>
-
-                  {/* Invisible Tap Target area for easy clicking */}
-                  <Rect
-                    x={c.x - pointSpacing / 2}
-                    y={0}
-                    width={pointSpacing}
-                    height={height}
-                    fill="transparent"
-                    onPress={() => setSelectedPoint(c)}
-                  />
-                </React.Fragment>
-              );
-            })}
-          </Svg>
-        </ScrollView>
+      <View style={styles.tooltipSlot}>
+        {selectedPoint ? (
+          <Animated.View
+            key={selectedPoint.year}
+            entering={FadeIn.duration(160)}
+            style={[styles.tooltip, { backgroundColor: t.colors.accentSoft, borderColor: t.colors.accentBorder }]}
+          >
+            <AppText variant="caption" color={t.colors.accentStrong} style={{ fontFamily: t.fonts.sansSemi }}>
+              {selectedPoint.year}: {selectedPoint.value.toLocaleString()} {unit}
+            </AppText>
+          </Animated.View>
+        ) : (
+          <AppText variant="caption">Tap a year to inspect</AppText>
+        )}
       </View>
-    </View>
+
+      <View onLayout={(e: LayoutChangeEvent) => setContainerWidth(e.nativeEvent.layout.width)} style={styles.graphWrapper}>
+        {containerWidth > 0 ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} scrollEnabled={isScrollable}>
+            <Svg width={width} height={height}>
+              <Defs>
+                <LinearGradient id="trendArea" x1="0" y1="0" x2="0" y2="1">
+                  <Stop offset="0" stopColor={t.colors.accent} stopOpacity={0.28} />
+                  <Stop offset="1" stopColor={t.colors.accent} stopOpacity={0} />
+                </LinearGradient>
+              </Defs>
+
+              {[0, 0.5, 1].map((g) => (
+                <Line
+                  key={g}
+                  x1={padX}
+                  y1={padTop + g * graphHeight}
+                  x2={width - padX}
+                  y2={padTop + g * graphHeight}
+                  stroke={t.colors.divider}
+                  strokeWidth={1}
+                  strokeDasharray={g === 0.5 ? '4 4' : undefined}
+                />
+              ))}
+
+              {area ? <Path d={area} fill="url(#trendArea)" /> : null}
+              <AnimatedPath
+                d={path}
+                fill="none"
+                stroke={t.colors.accent}
+                strokeWidth={2.5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeDasharray={`${pathLength} ${pathLength}`}
+                animatedProps={lineProps}
+              />
+
+              {coords.map((c) => {
+                const isSelected = selectedPoint?.year === c.year;
+                return (
+                  <React.Fragment key={c.year}>
+                    {isSelected && (
+                      <Line
+                        x1={c.x}
+                        y1={padTop}
+                        x2={c.x}
+                        y2={height - padBottom + 4}
+                        stroke={t.colors.accent}
+                        strokeWidth={1}
+                        strokeDasharray="2 3"
+                        opacity={0.7}
+                      />
+                    )}
+                    <Circle
+                      cx={c.x}
+                      cy={c.y}
+                      r={isSelected ? 6.5 : 4}
+                      fill={isSelected ? t.colors.accent : t.colors.surface}
+                      stroke={t.colors.accent}
+                      strokeWidth={2}
+                    />
+                    <SvgText
+                      x={c.x}
+                      y={height - 10}
+                      fontSize={10.5}
+                      fontWeight={isSelected ? 'bold' : 'normal'}
+                      fill={isSelected ? t.colors.accent : t.colors.textTertiary}
+                      textAnchor="middle"
+                    >
+                      {c.year}
+                    </SvgText>
+                    <Rect
+                      x={c.x - pointSpacing / 2}
+                      y={0}
+                      width={pointSpacing}
+                      height={height}
+                      fill="transparent"
+                      onPress={() => setSelectedPoint(c)}
+                    />
+                  </React.Fragment>
+                );
+              })}
+            </Svg>
+          </ScrollView>
+        ) : (
+          <View style={{ height }} />
+        )}
+      </View>
+    </Card>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 14,
-    padding: 16,
-    marginVertical: 10,
-    overflow: 'hidden',
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  title: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.textMuted,
-    letterSpacing: 1.2,
-    fontFamily: 'monospace',
-  },
-  scrollHint: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: colors.textSubtle,
-    fontFamily: 'monospace',
-    backgroundColor: colors.surface,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  tooltip: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.brass,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  tooltipText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.brass,
-    fontFamily: 'monospace',
-  },
-  graphWrapper: {
-    width: '100%',
-    overflow: 'hidden',
-  },
-  scrollContent: {
-    alignItems: 'center',
-  },
+  headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
+  hint: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
+  tooltipSlot: { height: 30, justifyContent: 'center', marginTop: 8 },
+  tooltip: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, borderWidth: 1 },
+  graphWrapper: { width: '100%', overflow: 'hidden', marginTop: 4 },
 });

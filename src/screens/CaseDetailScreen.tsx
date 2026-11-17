@@ -1,825 +1,494 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import Animated from 'react-native-reanimated';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  SafeAreaView,
-  StatusBar,
-  TouchableOpacity,
-  ActivityIndicator,
-  Linking,
-} from 'react-native';
-import { useRoute, useNavigation } from '@react-navigation/native';
-import { colors } from '../theme/colors';
-import Header from '../components/Header';
-import { api } from '../services/api';
-import type { CaseDetail, FilingStep } from '../types';
-import { extractHistoricalYear, isCitationQuery } from '../utils/docketValidator';
+  ArrowRight,
+  BookOpen,
+  CalendarCheck,
+  CalendarDays,
+  ChevronDown,
+  FileText,
+  Gavel,
+  Landmark,
+  Paperclip,
+  Quote,
+  Scale,
+  ScrollText,
+  Users,
+} from 'lucide-react-native';
+import * as cl from '../services/courtlistener';
+import type { ClusterDetail, DocketDetail, DocketEntry } from '../types';
+import { useTheme } from '../theme/ThemeProvider';
+import { useAsync } from '../hooks/useAsync';
+import { formatDate } from '../utils/format';
+import { DetailScaffold } from '../components/DetailScaffold';
+import { ProfileHero, HeroBadge } from '../components/ProfileHero';
+import { ErrorState } from '../components/ErrorState';
+import {
+  AppText,
+  Badge,
+  Button,
+  Card,
+  Chevron,
+  Collapse,
+  ExpandableSection,
+  IconTile,
+  InfoRow,
+  PressableScale,
+  SectionHeader,
+  Skeleton,
+  SkeletonCard,
+  enterUp,
+} from '../components/ui';
 
-function formatDate(d?: string | null) {
-  if (!d) return '—';
-  const parsed = new Date(d);
-  if (isNaN(parsed.getTime())) return d;
-  return parsed.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: '2-digit' });
+/* ------------------------------------------------------------- opinion */
+
+/** A sub-opinion whose text is fetched only when expanded. */
+function OpinionCard({ opinionId, index }: { opinionId: string; index: number }) {
+  const t = useTheme();
+  const [expanded, setExpanded] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const op = useAsync(() => cl.getOpinion(opinionId), [opinionId], { enabled: expanded });
+  const text = op.data?.text || '';
+  const preview = showAll ? text : text.slice(0, 2500);
+
+  return (
+    <Animated.View entering={enterUp(index)}>
+      <View style={[styles.opCard, { backgroundColor: t.colors.surface, borderColor: t.colors.border }, t.shadow(1)]}>
+        <PressableScale onPress={() => setExpanded((e) => !e)} scaleTo={0.99} style={styles.opHeader}>
+          <IconTile icon={ScrollText} tone="gold" size={38} />
+          <View style={{ flex: 1 }}>
+            <AppText variant="title">{op.data ? op.data.type : `Opinion ${index + 1}`}</AppText>
+            <AppText variant="caption" numberOfLines={1}>
+              {op.data
+                ? op.data.perCuriam
+                  ? 'Per curiam'
+                  : op.data.author || 'Author not identified'
+                : 'Tap to load the opinion text'}
+            </AppText>
+          </View>
+          <Chevron open={expanded} color={t.colors.textTertiary} />
+        </PressableScale>
+        <Collapse open={expanded}>
+          <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
+            {op.loading ? (
+              <View style={{ gap: 8 }}>
+                <Skeleton height={11} />
+                <Skeleton height={11} />
+                <Skeleton width="70%" height={11} />
+              </View>
+            ) : op.error ? (
+              <ErrorState error={op.error} onRetry={op.reload} />
+            ) : op.data ? (
+              <>
+                {op.data.joinedBy ? (
+                  <AppText variant="caption" style={{ marginBottom: 10 }}>
+                    Joined by {op.data.joinedBy}
+                  </AppText>
+                ) : null}
+                <AppText variant="body" style={{ fontFamily: t.fonts.sans, lineHeight: 22 }} selectable>
+                  {preview || 'No text is available for this opinion.'}
+                </AppText>
+                {text.length > 2500 ? (
+                  <Button
+                    label={showAll ? 'Show less' : `Read full opinion (${Math.round(text.length / 1000)}k characters)`}
+                    variant="secondary"
+                    size="sm"
+                    iconRight={ChevronDown}
+                    onPress={() => setShowAll((s) => !s)}
+                    style={{ marginTop: 12 }}
+                  />
+                ) : null}
+              </>
+            ) : null}
+          </View>
+        </Collapse>
+      </View>
+    </Animated.View>
+  );
 }
 
-function getActionBadgeStyle(actionType?: string) {
-  switch (actionType?.toUpperCase()) {
-    case 'FILING':
-      return { bg: 'rgba(56, 189, 248, 0.12)', border: 'rgba(56, 189, 248, 0.35)', text: '#38BDF8' };
-    case 'MOTION':
-      return { bg: 'rgba(168, 85, 247, 0.12)', border: 'rgba(168, 85, 247, 0.35)', text: '#A855F7' };
-    case 'ORDER':
-      return { bg: 'rgba(251, 191, 36, 0.12)', border: 'rgba(251, 191, 36, 0.35)', text: '#FBBF24' };
-    case 'DISPOSITION':
-    case 'VERDICT':
-      return { bg: 'rgba(79, 214, 117, 0.12)', border: 'rgba(79, 214, 117, 0.35)', text: '#4FD675' };
-    default:
-      return { bg: 'rgba(100, 116, 139, 0.12)', border: 'rgba(100, 116, 139, 0.3)', text: '#94A3B8' };
+/* --------------------------------------------------------- docket entry */
+
+function EntryRow({ entry, index, isLast, caseName }: { entry: DocketEntry; index: number; isLast: boolean; caseName: string }) {
+  const t = useTheme();
+  const navigation = useNavigation<any>();
+  const [openRow, setOpenRow] = useState(index === 0);
+  const long = entry.description.length > 160 || entry.documents.length > 0;
+  return (
+    <Animated.View entering={enterUp(index % 10)} style={styles.stepRow}>
+      <View style={styles.rail}>
+        <View style={[styles.stepDot, { backgroundColor: t.tone('teal').bg, borderColor: t.colors.teal }]}>
+          <AppText variant="caption" color={t.colors.teal} style={{ fontFamily: t.fonts.sansBold, fontSize: 10.5 }} numberOfLines={1}>
+            {entry.entryNumber ?? '•'}
+          </AppText>
+        </View>
+        {!isLast ? <View style={[styles.railLine, { backgroundColor: t.colors.border }]} /> : null}
+      </View>
+      <View style={{ flex: 1, paddingBottom: isLast ? 0 : 14 }}>
+        <PressableScale
+          onPress={() => long && setOpenRow((o) => !o)}
+          scaleTo={long ? 0.985 : 1}
+          style={[styles.stepCard, { backgroundColor: t.colors.surface, borderColor: t.colors.border }, t.shadow(1)]}
+        >
+          <View style={styles.stepTop}>
+            <AppText variant="caption">{formatDate(entry.dateFiled)}</AppText>
+            <View style={{ flex: 1 }} />
+            {entry.documents.length ? <Badge label={`${entry.documents.length} doc${entry.documents.length > 1 ? 's' : ''}`} tone="teal" icon={Paperclip} /> : null}
+            {long ? <Chevron open={openRow} color={t.colors.textTertiary} size={16} /> : null}
+          </View>
+          <AppText variant="body" style={{ marginTop: 6 }} numberOfLines={openRow ? undefined : 3}>
+            {entry.description}
+          </AppText>
+          <Collapse open={openRow && entry.documents.length > 0}>
+            <View style={{ paddingTop: 10, gap: 6 }}>
+              {entry.documents.map((d) => (
+                <PressableScale
+                  key={d.id}
+                  onPress={() => navigation.push('Document', { id: d.id, caseName })}
+                  style={[styles.doc, { backgroundColor: t.colors.surfaceSunken }]}
+                >
+                  <FileText size={14} color={d.available ? t.colors.accent : t.colors.textTertiary} />
+                  <AppText variant="caption" style={{ flex: 1 }} numberOfLines={2}>
+                    {d.description}
+                    {d.pageCount ? ` · ${d.pageCount} pp.` : ''}
+                    {d.available ? '' : ' · not yet available'}
+                  </AppText>
+                  <ArrowRight size={13} color={t.colors.accent} />
+                </PressableScale>
+              ))}
+            </View>
+          </Collapse>
+        </PressableScale>
+      </View>
+    </Animated.View>
+  );
+}
+
+/* --------------------------------------------------------------- parts */
+
+function PartiesSection({ docketId }: { docketId: string }) {
+  const t = useTheme();
+  const [expanded, setExpanded] = useState(false);
+  const parties = useAsync(() => cl.getDocketParties(docketId), [docketId], { enabled: expanded });
+  return (
+    <View style={[styles.opCard, { backgroundColor: t.colors.surface, borderColor: t.colors.border }, t.shadow(1)]}>
+      <PressableScale onPress={() => setExpanded((e) => !e)} scaleTo={0.99} style={styles.opHeader}>
+        <IconTile icon={Users} tone="plum" size={38} />
+        <View style={{ flex: 1 }}>
+          <AppText variant="title">Parties & counsel</AppText>
+          <AppText variant="caption">
+            {parties.data ? `${parties.data.length} parties on the docket` : 'Tap to view parties and their lawyers'}
+          </AppText>
+        </View>
+        <Chevron open={expanded} color={t.colors.textTertiary} />
+      </PressableScale>
+      <Collapse open={expanded}>
+        <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
+          {parties.loading ? (
+            <ActivityIndicator color={t.colors.accent} style={{ marginVertical: 12 }} />
+          ) : parties.error ? (
+            <ErrorState error={parties.error} onRetry={parties.reload} />
+          ) : parties.data && parties.data.length ? (
+            parties.data.map((p, i) => (
+              <View
+                key={p.id}
+                style={[styles.party, i < parties.data!.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.colors.divider }]}
+              >
+                <View style={styles.partyTop}>
+                  <AppText variant="bodyStrong" style={{ flex: 1 }}>
+                    {p.name}
+                  </AppText>
+                  {p.roles[0] ? <Badge label={p.roles[0]} tone={/defend|respond|appellee/i.test(p.roles[0]) ? 'plum' : 'teal'} /> : null}
+                </View>
+                {p.attorneys.length ? (
+                  <AppText variant="caption" style={{ marginTop: 4 }}>
+                    Counsel: {p.attorneys.join(', ')}
+                  </AppText>
+                ) : null}
+              </View>
+            ))
+          ) : (
+            <AppText variant="caption">No party records are available for this docket.</AppText>
+          )}
+        </View>
+      </Collapse>
+    </View>
+  );
+}
+
+function DateTiles({ tiles }: { tiles: { label: string; value?: string | null; icon: any }[] }) {
+  const t = useTheme();
+  const shown = tiles.filter((x) => x.value);
+  if (!shown.length) return null;
+  return (
+    <Animated.View entering={enterUp(1)} style={styles.metaGrid}>
+      {shown.map((m) => (
+        <View key={m.label} style={[styles.metaTile, { backgroundColor: t.colors.surface, borderColor: t.colors.border }, t.shadow(1)]}>
+          <m.icon size={15} color={t.colors.accent} />
+          <AppText variant="overline" style={{ fontSize: 9, marginTop: 8 }} numberOfLines={1}>
+            {m.label}
+          </AppText>
+          <AppText variant="bodyStrong" style={{ marginTop: 2, fontSize: 13 }} numberOfLines={2}>
+            {formatDate(m.value)}
+          </AppText>
+        </View>
+      ))}
+    </Animated.View>
+  );
+}
+
+/* --------------------------------------------------------------- screen */
+
+interface CaseData {
+  kind: 'cluster' | 'docket';
+  cluster?: ClusterDetail;
+  docket?: DocketDetail;
+  courtName?: string;
+}
+
+async function loadCase(routeId: string): Promise<CaseData | null> {
+  const target = await cl.resolveCase(routeId);
+  if (!target) return null;
+  if (target.kind === 'cluster') {
+    const cluster = await cl.getCluster(target.id);
+    const docket = cluster.docketId ? await cl.getDocket(cluster.docketId).catch(() => undefined) : undefined;
+    return { kind: 'cluster', cluster, docket, courtName: await cl.courtName(docket?.courtId) };
   }
+  const docket = await cl.getDocket(target.id);
+  return { kind: 'docket', docket, courtName: await cl.courtName(docket.courtId) };
 }
 
 export default function CaseDetailScreen() {
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
-  const id = route.params?.id;
+  const t = useTheme();
+  const id: string = String(route.params?.id ?? '');
 
-  const [loading, setLoading] = useState(true);
-  const [caseData, setCaseData] = useState<CaseDetail | null>(null);
+  const data = useAsync(() => loadCase(id), [id], { enabled: !!id });
+  // For docket links the id is known up front, so entries load in parallel with the docket.
+  const routeDocketId = /^docket:(.+)$/.exec(id)?.[1];
+  const docketId = routeDocketId ?? (data.data?.kind === 'docket' ? data.data.docket?.id : undefined);
+  const entries = useAsync(() => cl.getDocketEntries(docketId!), [docketId], { enabled: !!docketId });
+  const [moreEntries, setMoreEntries] = useState<DocketEntry[]>([]);
+  const [entryCursor, setEntryCursor] = useState<string | null | undefined>(undefined);
+  const [loadingEntries, setLoadingEntries] = useState(false);
+  const cursor = entryCursor === undefined ? entries.data?.next ?? null : entryCursor;
 
-  useEffect(() => {
-    if (!id) return;
-    let mounted = true;
-    setLoading(true);
+  const loadMoreEntries = async () => {
+    if (!cursor || !docketId) return;
+    setLoadingEntries(true);
+    try {
+      const p = await cl.getDocketEntries(docketId, cursor);
+      setMoreEntries((prev) => [...prev, ...p.entries]);
+      setEntryCursor(p.next);
+    } finally {
+      setLoadingEntries(false);
+    }
+  };
 
-    api.case(id)
-      .then((data) => {
-        if (mounted) setCaseData(data);
-      })
-      .catch(() => {
-        if (mounted) {
-          const histYear = extractHistoricalYear(id);
-          const isCitation = isCitationQuery(id);
-          // Fallback mock case data if offline
-          setCaseData({
-            id: id,
-            docketNumber: id,
-            caseName: id.includes('v.') ? id : isCitation ? `Supreme Court Ruling (${id})` : `Matter #${id}`,
-            jurisdiction: isCitation ? 'Supreme Court of the United States' : 'US Federal Court',
-            caseType: isCitation ? 'Constitutional Precedent Review' : 'Civil Rights / Commercial',
-            filingDate: `${histYear}-03-12`,
-            resolutionDate: `${histYear + 1}-01-18`,
-            status: isCitation ? 'PUBLISHED PRECEDENT' : 'VERIFIED PUBLIC DOCKET',
-            plaintiffName: isCitation ? 'Petitioner of Record' : 'Moving Party of Record',
-            defendantName: isCitation ? 'Respondent of Record' : 'Responding Party of Record',
-            plaintiffCounsel: isCitation ? 'Solicitor General / Petitioner Counsel' : 'Counsel of Record',
-            defenseCounsel: 'Appellate Defense Counsel',
-            presidingJudge: isCitation ? 'Supreme Court Judicial Bench' : 'Hon. Presiding Bench Jurist',
-          });
-        }
-      })
-      .finally(() => {
-        if (mounted) setLoading(false);
-      });
+  const d = data.data;
+  const c = d?.cluster;
+  const k = d?.docket;
+  const title = c?.caseName || k?.caseName || '';
+  const allEntries = [...(entries.data?.entries ?? []), ...moreEntries];
 
-    return () => {
-      mounted = false;
-    };
-  }, [id]);
-
-  if (loading) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <StatusBar barStyle="light-content" backgroundColor={colors.background} />
-        <Header />
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Loading Court Docket Data...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  if (!caseData) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <StatusBar barStyle="light-content" backgroundColor={colors.background} />
-        <Header />
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>Docket Record Not Found</Text>
-          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-            <Text style={styles.backBtnText}>&larr; Go Back</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  const docketNumber = caseData.docketNumber || caseData.id || id;
-  const isCitation = isCitationQuery(docketNumber);
-  const histYear = extractHistoricalYear(docketNumber, caseData.filingDate);
-
-  const courtListenerQuery =
-    caseData.courtListenerUrl ||
-    (caseData.courtListenerDocketId
-      ? `https://www.courtlistener.com/docket/${caseData.courtListenerDocketId}/`
-      : `https://www.courtlistener.com/?q=${encodeURIComponent(docketNumber)}`);
-
-  const googleScholarQuery = `https://scholar.google.com/scholar?q=${encodeURIComponent(
-    `"${docketNumber}" "${caseData.jurisdiction}" court ruling opinion`
-  )}`;
-
-  const justiaQuery = `https://law.justia.com/search?q=${encodeURIComponent(
-    `${docketNumber} ${caseData.jurisdiction}`
-  )}`;
-
-  const fallbackFiling = caseData.filingDate || `${histYear}-03-15`;
-  const fallbackRes = caseData.resolutionDate || `${histYear + 1}-01-20`;
-
-  const filingSteps: FilingStep[] =
-    caseData.filingSteps && caseData.filingSteps.length > 0
-      ? caseData.filingSteps
-      : [
-          {
-            stepNumber: 1,
-            date: fallbackFiling,
-            entryNumber: 1,
-            title: isCitation ? 'Petition for Writ of Certiorari Docketed' : 'Initial Case Complaint & Civil Docket Cover Sheet Filed',
-            description: isCitation
-              ? `Formal petition entered on Supreme Court docket under citation ${docketNumber}.`
-              : `Initial civil/criminal complaint formally entered on docket under #${docketNumber}. Mandatory disclosures and summons issued.`,
-            filedBy: caseData.plaintiffCounsel || 'Plaintiff Counsel of Record',
-            actionType: 'FILING',
-          },
-          {
-            stepNumber: 2,
-            date: `${histYear}-08-10`,
-            entryNumber: 8,
-            title: isCitation ? 'Oral Argument Heard by the Bench' : 'Pretrial Scheduling Conference & Order',
-            description: isCitation
-              ? 'Oral arguments presented before the Justices of the Supreme Court.'
-              : 'Rule 16 case management conference held; discovery cutoffs established.',
-            filedBy: caseData.presidingJudge || 'Presiding Judicial Bench',
-            actionType: 'ORDER',
-          },
-          {
-            stepNumber: 3,
-            date: fallbackRes,
-            entryNumber: 16,
-            title: isCitation ? 'Supreme Court Precedent Decision & Judicial Opinion' : 'Judicial Memorandum Decision & Procedural Disposition',
-            description: isCitation
-              ? `Official Supreme Court Opinion published in United States Reports at ${docketNumber}.`
-              : 'Memorandum Opinion entered by presiding judicial bench resolving pending motions on the record.',
-            filedBy: caseData.presidingJudge || 'Supreme Court of the United States',
-            actionType: 'DISPOSITION',
-          },
-        ];
+  const badges: HeroBadge[] = [];
+  if (c?.status) badges.push({ label: c.status, tone: 'success', dot: true });
+  if (k && !c) badges.push(k.dateTerminated ? { label: 'Terminated', tone: 'neutral' } : { label: 'Open', tone: 'success', dot: true });
+  if (d?.courtName) badges.push({ label: d.courtName, tone: 'gold', icon: Landmark });
+  if (k?.natureOfSuit) badges.push({ label: k.natureOfSuit, tone: 'info' });
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
-      <Header />
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        {/* Navigation Breadcrumb */}
-        <TouchableOpacity style={styles.breadcrumb} onPress={() => navigation.goBack()}>
-          <Text style={styles.breadcrumbBack}>&larr; Back</Text>
-          <Text style={styles.breadcrumbDivider}>/</Text>
-          <Text style={styles.breadcrumbText}>Court Dockets</Text>
-          <Text style={styles.breadcrumbDivider}>/</Text>
-          <Text style={styles.breadcrumbCurrent} numberOfLines={1}>
-            #{docketNumber}
-          </Text>
-        </TouchableOpacity>
+    <DetailScaffold
+      title={k?.docketNumber ? `#${k.docketNumber}` : title}
+      loading={data.loading && !d}
+      loadingLabel="Loading case record…"
+      notFound={!data.loading && !d && !data.error}
+      notFoundTitle="Case record not found"
+    >
+      {data.error && !d ? (
+        <ErrorState error={data.error} onRetry={data.reload} />
+      ) : d ? (
+        <>
+          <ProfileHero
+            name={title}
+            icon={FileText}
+            eyebrow={c?.citations[0] || (k?.docketNumber ? `Docket ${k.docketNumber}` : c ? 'Case law' : 'Federal docket')}
+            subtitle={c?.caseNameFull && c.caseNameFull !== title ? c.caseNameFull : undefined}
+            badges={badges}
+          />
 
-        {/* Primary Docket Header Card */}
-        <View style={styles.headerCard}>
-          <View style={styles.badgeRow}>
-            <View style={styles.docketBadge}>
-              <Text style={styles.docketBadgeText}>DOCKET #{docketNumber}</Text>
-            </View>
-            <View style={styles.courtBadge}>
-              <Text style={styles.courtBadgeText}>{caseData.courtName || caseData.jurisdiction}</Text>
-            </View>
-            <View style={styles.typeBadge}>
-              <Text style={styles.typeBadgeText}>{caseData.caseType}</Text>
-            </View>
-          </View>
+          <DateTiles
+            tiles={[
+              { label: c ? 'Decided' : 'Filed', value: c?.dateFiled || k?.dateFiled, icon: CalendarDays },
+              { label: c ? 'Docket filed' : 'Terminated', value: c ? k?.dateFiled : k?.dateTerminated, icon: CalendarCheck },
+              { label: c ? 'Argued' : 'Last filing', value: c ? k?.dateArgued : k?.dateLastFiling, icon: Gavel },
+            ]}
+          />
 
-          <Text style={styles.caseTitle}>
-            {caseData.caseName || `${caseData.plaintiffName} v. ${caseData.defendantName}`}
-          </Text>
+          <Animated.View entering={enterUp(2)}>
+            <ExpandableSection title="Case details" subtitle="From the court record" icon={Scale} initiallyOpen>
+              {k?.assignedTo ? (
+                <InfoRow icon={Gavel} label="Assigned judge" value={k.assignedTo} sub={k.referredTo ? `Referred to ${k.referredTo}` : undefined} />
+              ) : null}
+              {c?.judges ? <InfoRow icon={Gavel} label="Judges" value={c.judges} /> : null}
+              {c?.citations.length ? <InfoRow icon={Quote} label="Citations" value={c.citations.join(' · ')} /> : null}
+              {typeof c?.citationCount === 'number' ? (
+                <InfoRow icon={Quote} label="Cited by" value={`${c.citationCount.toLocaleString()} opinions`} />
+              ) : null}
+              {k?.cause ? <InfoRow icon={ScrollText} label="Cause" value={k.cause} /> : null}
+              {k?.jurisdictionType ? <InfoRow icon={Landmark} label="Jurisdiction" value={k.jurisdictionType} /> : null}
+              {k?.juryDemand ? <InfoRow icon={Users} label="Jury demand" value={k.juryDemand} /> : null}
+              {k?.appealFrom ? <InfoRow icon={Landmark} label="Appeal from" value={k.appealFrom} /> : null}
+              {c?.disposition ? <InfoRow icon={CalendarCheck} label="Disposition" value={c.disposition} /> : null}
+              {c?.attorneys ? <InfoRow icon={Users} label="Attorneys" value={c.attorneys} last /> : null}
+            </ExpandableSection>
+          </Animated.View>
 
-          <View style={styles.metaRow}>
-            <View style={styles.metaItem}>
-              <Text style={styles.metaLabel}>FILING DATE</Text>
-              <Text style={styles.metaValue}>{formatDate(caseData.filingDate)}</Text>
-            </View>
-            <View style={styles.metaItem}>
-              <Text style={styles.metaLabel}>DISPOSITION</Text>
-              <Text style={styles.metaValue}>{formatDate(caseData.resolutionDate)}</Text>
-            </View>
-            <View style={styles.metaItem}>
-              <Text style={styles.metaLabel}>COURT SYSTEM</Text>
-              <Text style={styles.metaValue}>{caseData.jurisdiction}</Text>
-            </View>
-          </View>
-
-          <View style={styles.statusRow}>
-            <View style={styles.statusBadge}>
-              <View style={styles.statusDot} />
-              <Text style={styles.statusText}>{caseData.status || 'VERIFIED PUBLIC DOCKET'}</Text>
-            </View>
-
-            <TouchableOpacity
-              style={styles.courtListenerBtn}
-              onPress={() => Linking.openURL(courtListenerQuery)}
+          {k?.assignedToId ? (
+            <PressableScale
+              haptic
+              onPress={() => navigation.navigate('JudgeProfile', { id: k.assignedToId })}
+              style={[styles.judgeLink, { backgroundColor: t.colors.accentSoft, borderColor: t.colors.accentBorder }]}
             >
-              <Text style={styles.courtListenerBtnText}>View On CourtListener &rsaquo;</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+              <AppText variant="callout" color={t.colors.accentStrong}>
+                View {k.assignedTo ? `${k.assignedTo}’s` : 'the judge’s'} profile
+              </AppText>
+              <ArrowRight size={15} color={t.colors.accentStrong} />
+            </PressableScale>
+          ) : null}
 
-        {/* Parties & Bench of Record */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>PARTIES & BENCH OF RECORD</Text>
-          <Text style={styles.sectionSubtitle}>Direct Court Assignment</Text>
-        </View>
-
-        <View style={styles.partiesGrid}>
-          {/* Plaintiff Card */}
-          <View style={styles.partyCard}>
-            <View style={styles.partyBadgeRow}>
-              <View style={[styles.partyPill, { backgroundColor: 'rgba(56, 189, 248, 0.12)', borderColor: 'rgba(56, 189, 248, 0.35)' }]}>
-                <Text style={[styles.partyPillText, { color: '#38BDF8' }]}>PLAINTIFF / PROSECUTION</Text>
-              </View>
-              <Text style={styles.partyRole}>Moving Party</Text>
-            </View>
-            <Text style={styles.partyName}>{caseData.plaintiffName || 'Plaintiff of Record'}</Text>
-            <Text style={styles.counselLabel}>COUNSEL OF RECORD</Text>
-            <Text style={styles.counselName}>{caseData.plaintiffCounsel || 'Office of Prosecution / Special Counsel'}</Text>
-          </View>
-
-          {/* Defendant Card */}
-          <View style={styles.partyCard}>
-            <View style={styles.partyBadgeRow}>
-              <View style={[styles.partyPill, { backgroundColor: 'rgba(168, 85, 247, 0.12)', borderColor: 'rgba(168, 85, 247, 0.35)' }]}>
-                <Text style={[styles.partyPillText, { color: '#A855F7' }]}>DEFENDANT / RESPONDENT</Text>
-              </View>
-              <Text style={styles.partyRole}>Responding Party</Text>
-            </View>
-            <Text style={styles.partyName}>{caseData.defendantName || 'Defendant of Record'}</Text>
-            <Text style={styles.counselLabel}>DEFENSE REPRESENTATION</Text>
-            <Text style={styles.counselName}>{caseData.defenseCounsel || 'Appellate & Defense Counsel of Record'}</Text>
-          </View>
-
-          {/* Presiding Judge Card */}
-          <View style={styles.partyCard}>
-            <View style={styles.partyBadgeRow}>
-              <View style={[styles.partyPill, { backgroundColor: 'rgba(79, 214, 117, 0.12)', borderColor: 'rgba(79, 214, 117, 0.35)' }]}>
-                <Text style={[styles.partyPillText, { color: '#4FD675' }]}>PRESIDING JUDGE</Text>
-              </View>
-              <Text style={styles.partyRole}>Adjudication</Text>
-            </View>
-            <Text style={styles.partyName}>{caseData.presidingJudge || 'Hon. Presiding Bench Jurist'}</Text>
-            <Text style={styles.counselLabel}>COURT ASSIGNMENT</Text>
-            <Text style={styles.counselName}>{caseData.courtName || caseData.jurisdiction || 'U.S. Federal Judiciary'}</Text>
-
-            {caseData.judgeId && (
-              <TouchableOpacity
-                style={styles.viewJudgeBtn}
-                onPress={() => navigation.navigate('JudgeProfile', { id: caseData.judgeId })}
-              >
-                <Text style={styles.viewJudgeBtnText}>View Full Judicial Profile &rarr;</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-
-        {/* Procedural Filing Steps & Docket History */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>PROCEDURAL FILING STEPS & DOCKET HISTORY</Text>
-          <Text style={styles.sectionSubtitle}>{filingSteps.length} Entries Recorded</Text>
-        </View>
-
-        <View style={styles.timelineContainer}>
-          {filingSteps.map((step, idx) => {
-            const badgeStyle = getActionBadgeStyle(step.actionType);
-            return (
-              <View key={step.stepNumber || idx} style={styles.timelineItem}>
-                <View style={styles.stepCircle}>
-                  <Text style={styles.stepCircleText}>{step.stepNumber || idx + 1}</Text>
-                </View>
-
-                <View style={styles.stepCard}>
-                  <View style={styles.stepCardTop}>
-                    <View style={[styles.actionPill, { backgroundColor: badgeStyle.bg, borderColor: badgeStyle.border }]}>
-                      <Text style={[styles.actionPillText, { color: badgeStyle.text }]}>
-                        {step.actionType || 'PROCEDURAL STEP'}
-                      </Text>
-                    </View>
-                    {step.entryNumber && (
-                      <Text style={styles.entryNumText}>Entry #{step.entryNumber}</Text>
-                    )}
-                    <Text style={styles.stepDateText}>{formatDate((step as any).filed_at || step.date)}</Text>
+          {c?.syllabus || c?.summary || c?.proceduralHistory || c?.posture ? (
+            <ExpandableSection title="Summary" subtitle="Syllabus, history & posture" icon={BookOpen}>
+              {[
+                ['Syllabus', c?.syllabus],
+                ['Summary', c?.summary],
+                ['Procedural history', c?.proceduralHistory],
+                ['Posture', c?.posture],
+              ]
+                .filter(([, v]) => v)
+                .map(([label, v]) => (
+                  <View key={label} style={{ paddingVertical: 8 }}>
+                    <AppText variant="overline" style={{ fontSize: 9.5 }}>
+                      {label}
+                    </AppText>
+                    <AppText variant="body" style={{ marginTop: 4 }} selectable>
+                      {v}
+                    </AppText>
                   </View>
+                ))}
+            </ExpandableSection>
+          ) : null}
 
-                  <Text style={styles.stepTitle}>{step.title}</Text>
-                  <Text style={styles.stepDescription}>{step.description}</Text>
-
-                  {step.filedBy && (
-                    <View style={styles.stepFooter}>
-                      <Text style={styles.stepFiledByLabel}>
-                        Filed By: <Text style={styles.stepFiledByText}>{step.filedBy}</Text>
-                      </Text>
-                    </View>
-                  )}
-                </View>
+          {c && c.subOpinionIds.length ? (
+            <View>
+              <SectionHeader eyebrow={`${c.subOpinionIds.length} opinion${c.subOpinionIds.length > 1 ? 's' : ''}`} title="Opinions" />
+              <View style={{ gap: 10 }}>
+                {c.subOpinionIds.map((oid, i) => (
+                  <OpinionCard key={oid} opinionId={oid} index={i} />
+                ))}
               </View>
-            );
-          })}
-        </View>
-
-        {/* Primary Legal Source Archives */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>PRIMARY LEGAL SOURCE ARCHIVES</Text>
-          <Text style={styles.sectionSubtitle}>Verified Public Repositories</Text>
-        </View>
-
-        <View style={styles.sourcesContainer}>
-          <TouchableOpacity
-            style={styles.sourceCard}
-            onPress={() => Linking.openURL(courtListenerQuery)}
-          >
-            <View style={styles.sourceCardTop}>
-              <Text style={styles.sourceName}>CourtListener / Free.Law</Text>
-              <Text style={styles.sourceArrow}>&rarr;</Text>
             </View>
-            <Text style={styles.sourceDesc}>
-              Full public docket sheet, judicial assignments, and electronic filings.
-            </Text>
-          </TouchableOpacity>
+          ) : null}
 
-          <TouchableOpacity
-            style={styles.sourceCard}
-            onPress={() => Linking.openURL(googleScholarQuery)}
-          >
-            <View style={styles.sourceCardTop}>
-              <Text style={styles.sourceName}>Google Scholar Case Law</Text>
-              <Text style={styles.sourceArrow}>&rarr;</Text>
+          {k && !c && k.clusterIds.length ? (
+            <View>
+              <SectionHeader eyebrow="Case law" title="Opinions in this case" />
+              <View style={{ gap: 10 }}>
+                {k.clusterIds.map((cid, i) => (
+                  <Card key={cid} onPress={() => navigation.push('CaseDetail', { id: `cluster:${cid}` })} haptic>
+                    <View style={styles.sourceRow}>
+                      <IconTile icon={ScrollText} tone="gold" size={38} />
+                      <AppText variant="title" style={{ flex: 1 }}>
+                        Opinion {i + 1}
+                      </AppText>
+                      <ArrowRight size={16} color={t.colors.accent} />
+                    </View>
+                  </Card>
+                ))}
+              </View>
             </View>
-            <Text style={styles.sourceDesc}>
-              Judicial citations, appellate opinions, and federal precedents.
-            </Text>
-          </TouchableOpacity>
+          ) : null}
 
-          <TouchableOpacity
-            style={styles.sourceCard}
-            onPress={() => Linking.openURL(justiaQuery)}
-          >
-            <View style={styles.sourceCardTop}>
-              <Text style={styles.sourceName}>Justia Law & Regulation</Text>
-              <Text style={styles.sourceArrow}>&rarr;</Text>
-            </View>
-            <Text style={styles.sourceDesc}>
-              State & federal statutory context, judicial history, and annotations.
-            </Text>
-          </TouchableOpacity>
-        </View>
+          {d.kind === 'cluster' && k ? (
+            <Button
+              label="Open the full docket"
+              variant="secondary"
+              iconRight={ArrowRight}
+              onPress={() => navigation.push('CaseDetail', { id: `docket:${k.id}` })}
+              style={{ alignSelf: 'center' }}
+            />
+          ) : null}
 
-        {/* Footer */}
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            Public court docket record indexed via CourtListener & Free.Law APIs. Historical record only. Zero synthetic statistical aggregations applied.
-          </Text>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+          {d.kind === 'docket' && k ? (
+            <>
+              <PartiesSection docketId={k.id} />
+              <View>
+                <SectionHeader eyebrow="Court filings" title="Docket entries" />
+                {entries.loading && !entries.data ? (
+                  <View style={{ gap: 10 }}>
+                    <SkeletonCard lines={2} />
+                    <SkeletonCard lines={2} />
+                  </View>
+                ) : entries.error ? (
+                  <ErrorState error={entries.error} onRetry={entries.reload} />
+                ) : allEntries.length ? (
+                  <View>
+                    {allEntries.map((e, i) => (
+                      <EntryRow key={e.id} entry={e} index={i} isLast={i === allEntries.length - 1} caseName={title} />
+                    ))}
+                    {cursor ? (
+                      <Button
+                        label="Load earlier entries"
+                        variant="secondary"
+                        size="sm"
+                        iconRight={ChevronDown}
+                        loading={loadingEntries}
+                        onPress={loadMoreEntries}
+                        style={{ alignSelf: 'center', marginTop: 14 }}
+                      />
+                    ) : null}
+                  </View>
+                ) : (
+                  <AppText variant="caption">No docket entries are available for this case yet.</AppText>
+                )}
+              </View>
+            </>
+          ) : null}
+
+          <AppText variant="caption" align="center" style={{ fontStyle: 'italic', paddingHorizontal: 8 }}>
+            Official public court record.
+          </AppText>
+        </>
+      ) : null}
+    </DetailScaffold>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  container: {
-    flex: 1,
-  },
-  content: {
-    padding: 16,
-    paddingBottom: 40,
-  },
-  loadingContainer: {
-    flex: 1,
+  metaGrid: { flexDirection: 'row', gap: 8 },
+  metaTile: { flex: 1, padding: 12, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth },
+  judgeLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 13,
-    color: colors.textMuted,
-    fontFamily: 'monospace',
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  errorText: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: colors.text,
-    marginBottom: 16,
-  },
-  backBtn: {
-    backgroundColor: colors.surface,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  backBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.primary,
-    fontFamily: 'monospace',
-  },
-  breadcrumb: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: 6,
-    marginBottom: 14,
-  },
-  breadcrumbBack: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.primary,
-    fontFamily: 'monospace',
-  },
-  breadcrumbDivider: {
-    fontSize: 12,
-    color: colors.textSubtle,
-    fontFamily: 'monospace',
-  },
-  breadcrumbText: {
-    fontSize: 12,
-    color: colors.textMuted,
-    fontFamily: 'monospace',
-  },
-  breadcrumbCurrent: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.primary,
-    fontFamily: 'monospace',
-    maxWidth: 140,
-  },
-  headerCard: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 16,
-    padding: 18,
-    marginBottom: 20,
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginBottom: 12,
-  },
-  docketBadge: {
-    backgroundColor: 'rgba(77, 124, 254, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(77, 124, 254, 0.35)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  docketBadgeText: {
-    fontSize: 10.5,
-    fontWeight: '800',
-    color: '#4D7CFE',
-    fontFamily: 'monospace',
-  },
-  courtBadge: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  courtBadgeText: {
-    fontSize: 10.5,
-    color: colors.text,
-    fontFamily: 'monospace',
-  },
-  typeBadge: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  typeBadgeText: {
-    fontSize: 10.5,
-    color: colors.textMuted,
-    fontFamily: 'monospace',
-  },
-  caseTitle: {
-    fontSize: 20,
-    fontWeight: '900',
-    color: colors.text,
-    lineHeight: 26,
-    marginBottom: 14,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingTop: 12,
-    marginBottom: 14,
-  },
-  metaItem: {
-    marginRight: 8,
-  },
-  metaLabel: {
-    fontSize: 9.5,
-    fontWeight: '700',
-    color: colors.textSubtle,
-    fontFamily: 'monospace',
-    marginBottom: 2,
-  },
-  metaValue: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  statusRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingTop: 12,
-  },
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(79, 214, 117, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(79, 214, 117, 0.35)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-  },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#4FD675',
-  },
-  statusText: {
-    fontSize: 10.5,
-    fontWeight: '800',
-    color: '#4FD675',
-    fontFamily: 'monospace',
-  },
-  courtListenerBtn: {
-    backgroundColor: 'rgba(77, 124, 254, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(77, 124, 254, 0.35)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  courtListenerBtnText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#4D7CFE',
-    fontFamily: 'monospace',
-  },
-  sectionHeader: {
-    marginBottom: 10,
-    marginTop: 6,
-  },
-  sectionTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#4D7CFE',
-    letterSpacing: 1.2,
-    fontFamily: 'monospace',
-  },
-  sectionSubtitle: {
-    fontSize: 10,
-    color: colors.textSubtle,
-    fontFamily: 'monospace',
-    marginTop: 2,
-  },
-  partiesGrid: {
-    gap: 10,
-    marginBottom: 20,
-  },
-  partyCard: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
+    paddingVertical: 12,
     borderRadius: 14,
-    padding: 14,
-  },
-  partyBadgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  partyPill: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
     borderWidth: 1,
   },
-  partyPillText: {
-    fontSize: 9.5,
-    fontWeight: '800',
-    fontFamily: 'monospace',
-  },
-  partyRole: {
-    fontSize: 10,
-    color: colors.textSubtle,
-    fontFamily: 'monospace',
-  },
-  partyName: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: colors.text,
-    marginBottom: 8,
-  },
-  counselLabel: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: colors.textSubtle,
-    fontFamily: 'monospace',
-    marginBottom: 2,
-  },
-  counselName: {
-    fontSize: 12,
-    color: colors.textMuted,
-  },
-  viewJudgeBtn: {
-    marginTop: 10,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  viewJudgeBtnText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#4FD675',
-    fontFamily: 'monospace',
-  },
-  timelineContainer: {
-    marginBottom: 20,
-    gap: 10,
-  },
-  timelineItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-  },
-  stepCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 2,
-  },
-  stepCircleText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#4D7CFE',
-    fontFamily: 'monospace',
-  },
-  stepCard: {
-    flex: 1,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    padding: 12,
-  },
-  stepCardTop: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 6,
-    marginBottom: 6,
-  },
-  actionPill: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    borderWidth: 1,
-  },
-  actionPillText: {
-    fontSize: 9,
-    fontWeight: '800',
-    fontFamily: 'monospace',
-  },
-  entryNumText: {
-    fontSize: 10,
-    color: colors.textSubtle,
-    fontFamily: 'monospace',
-  },
-  stepDateText: {
-    fontSize: 10.5,
-    fontWeight: '700',
-    color: colors.text,
-    fontFamily: 'monospace',
-  },
-  stepTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: colors.text,
-    marginBottom: 4,
-  },
-  stepDescription: {
-    fontSize: 11.5,
-    color: colors.textMuted,
-    lineHeight: 16,
-  },
-  stepFooter: {
-    marginTop: 8,
-    paddingTop: 6,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  stepFiledByLabel: {
-    fontSize: 10,
-    color: colors.textSubtle,
-    fontFamily: 'monospace',
-  },
-  stepFiledByText: {
-    color: colors.text,
-    fontWeight: '600',
-  },
-  sourcesContainer: {
-    gap: 8,
-    marginBottom: 20,
-  },
-  sourceCard: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    padding: 12,
-  },
-  sourceCardTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  sourceName: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: colors.text,
-  },
-  sourceArrow: {
-    fontSize: 14,
-    color: '#4D7CFE',
-    fontWeight: '700',
-  },
-  sourceDesc: {
-    fontSize: 11,
-    color: colors.textMuted,
-  },
-  footer: {
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingTop: 14,
-    marginTop: 10,
-  },
-  footerText: {
-    fontSize: 10,
-    color: colors.textSubtle,
-    fontFamily: 'monospace',
-    lineHeight: 15,
-    textAlign: 'center',
-  },
+  opCard: { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
+  opHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
+  stepRow: { flexDirection: 'row', gap: 12 },
+  rail: { width: 32, alignItems: 'center' },
+  stepDot: { width: 32, height: 32, borderRadius: 16, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  railLine: { flex: 1, width: 2, marginTop: 4, borderRadius: 1 },
+  stepCard: { padding: 14, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth },
+  stepTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  doc: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, borderRadius: 10 },
+  party: { paddingVertical: 10 },
+  partyTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  sourceRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
 });

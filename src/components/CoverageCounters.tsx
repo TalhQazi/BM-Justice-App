@@ -1,140 +1,124 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { api } from '../services/api';
-import type { CoverageStatsData } from '../types';
+import React, { useEffect, useMemo, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
+import Animated from 'react-native-reanimated';
+import { Briefcase, FileText, FolderOpen, Gavel, Landmark, Vote } from 'lucide-react-native';
+import type { LucideIcon } from 'lucide-react-native';
+import type { ToneKey } from '../theme/themes';
+import { useTheme } from '../theme/ThemeProvider';
+import { useResponsive } from '../theme/responsive';
+import { useCoverageStats } from '../hooks/useCoverageStats';
+import { AppText, IconTile, SkeletonStatGrid, enterUp } from './ui';
 
-export default function CoverageCounters() {
-  const [stats, setStats] = useState<CoverageStatsData>({
-    casesAnalyzed: '0',
-    activeBenchJurists: '0',
-    attorneysAnalyzed: '0',
-    prosecutorsTracked: '0',
-    courtsCovered: '0',
-    judicialDataPoints: '0',
-  });
+/** Animates the numeric part of strings like "12,450+" from zero. */
+function useCountUp(value: string, duration = 950) {
+  const parsed = useMemo(() => {
+    const m = /^([\d,]+(?:\.\d+)?)(.*)$/.exec(value.trim());
+    if (!m) return null;
+    const num = parseFloat(m[1].replace(/,/g, ''));
+    if (isNaN(num)) return null;
+    return { num, suffix: m[2], decimals: m[1].includes('.') ? m[1].split('.')[1].length : 0 };
+  }, [value]);
+
+  const [display, setDisplay] = useState(parsed ? '0' : value);
 
   useEffect(() => {
-    let mounted = true;
-    api
-      .getCoverageStats()
-      .then((data) => {
-        if (mounted && data) {
-          setStats({
-            casesAnalyzed:
-              data.casesAnalyzed ||
-              (data.casesCount ? `${data.casesCount.toLocaleString()}+` : '0'),
-            activeBenchJurists:
-              data.activeBenchJurists ||
-              (data.judgesCount ? `${data.judgesCount.toLocaleString()}+` : '0'),
-            attorneysAnalyzed:
-              data.attorneysAnalyzed ||
-              (data.attorneysCount ? `${data.attorneysCount.toLocaleString()}+` : '0'),
-            prosecutorsTracked:
-              data.prosecutorsTracked ||
-              (data.prosecutorsCount ? `${data.prosecutorsCount.toLocaleString()}+` : '0'),
-            courtsCovered: data.courtsCovered || (data.courtsCount ? `${data.courtsCount.toLocaleString()}+` : '0'),
-            judicialDataPoints: data.judicialDataPoints || (data.dataPoints ? `${data.dataPoints.toLocaleString()}+` : '0'),
-          });
-        }
-      })
-      .catch(() => {
-        if (mounted) {
-          setStats({
-            casesAnalyzed: '0',
-            activeBenchJurists: '0',
-            attorneysAnalyzed: '0',
-            prosecutorsTracked: '0',
-            courtsCovered: '0',
-            judicialDataPoints: '0',
-          });
-        }
-      });
-
-    return () => {
-      mounted = false;
+    if (!parsed || parsed.num === 0) {
+      setDisplay(value);
+      return;
+    }
+    let raf = 0;
+    const start = Date.now();
+    const tick = () => {
+      const p = Math.min(1, (Date.now() - start) / duration);
+      const eased = 1 - Math.pow(1 - p, 3);
+      const cur = parsed.num * eased;
+      setDisplay(
+        `${cur.toLocaleString('en-US', {
+          minimumFractionDigits: parsed.decimals,
+          maximumFractionDigits: parsed.decimals,
+        })}${p === 1 ? parsed.suffix : ''}`,
+      );
+      if (p < 1) raf = requestAnimationFrame(tick);
     };
-  }, []);
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [parsed, value, duration]);
 
-  const items = [
-    {
-      value: stats.casesAnalyzed || '0',
-      label: 'CASES ANALYZED',
-      color: '#4D7CFE', // Sapphire Blue
-    },
-    {
-      value: stats.activeBenchJurists || '0',
-      label: 'ACTIVE BENCH JURISTS',
-      color: '#4FD675', // Emerald Green
-    },
-    {
-      value: stats.attorneysAnalyzed || '0',
-      label: 'ATTORNEYS ANALYZED',
-      color: '#38BDF8', // Sky Blue
-    },
-    {
-      value: stats.prosecutorsTracked || '0',
-      label: 'PROSECUTORS TRACKED',
-      color: '#A855F7', // Neon Purple
-    },
-    {
-      value: stats.courtsCovered || '0',
-      label: 'COURTS COVERED',
-      color: '#FBBF24', // Amber Gold
-    },
-    {
-      value: stats.judicialDataPoints || '0',
-      label: 'JUDICIAL DATA POINTS',
-      color: '#22D3EE', // Cyan
-    },
+  return display;
+}
+
+function StatTile({
+  value,
+  label,
+  icon,
+  tone,
+  index,
+  width,
+}: {
+  value: string;
+  label: string;
+  icon: LucideIcon;
+  tone: ToneKey;
+  index: number;
+  width: string;
+}) {
+  const t = useTheme();
+  const display = useCountUp(value);
+  return (
+    <Animated.View
+      entering={enterUp(index)}
+      style={[
+        styles.tile,
+        {
+          width: width as any,
+          backgroundColor: t.colors.surface,
+          borderColor: t.colors.border,
+          borderRadius: t.radius.lg,
+        },
+        t.shadow(1),
+      ]}
+    >
+      <IconTile icon={icon} tone={tone} size={32} />
+      <AppText variant="stat" style={{ marginTop: 10 }} numberOfLines={1} adjustsFontSizeToFit>
+        {display}
+      </AppText>
+      <AppText variant="overline" style={{ fontSize: 9.5, marginTop: 2 }} numberOfLines={2}>
+        {label}
+      </AppText>
+    </Animated.View>
+  );
+}
+
+export default function CoverageCounters() {
+  const { stats, loading } = useCoverageStats();
+  const { gridColumns } = useResponsive();
+
+  const show = (n?: number) => (typeof n === 'number' ? n.toLocaleString('en-US') : '—');
+
+  // Every value is a live count from CourtListener or Congress.gov ("—" if a source fails).
+  const items: { value: string; label: string; icon: LucideIcon; tone: ToneKey }[] = [
+    { value: show(stats.opinions), label: 'Published opinions', icon: FileText, tone: 'gold' },
+    { value: show(stats.dockets), label: 'Federal dockets (approx.)', icon: FolderOpen, tone: 'teal' },
+    { value: show(stats.judges), label: 'Judges indexed', icon: Gavel, tone: 'success' },
+    { value: show(stats.courts), label: 'Active courts', icon: Landmark, tone: 'warning' },
+    { value: show(stats.attorneys), label: 'Attorneys on record', icon: Briefcase, tone: 'info' },
+    { value: show(stats.legislators), label: 'Members of Congress', icon: Vote, tone: 'plum' },
   ];
 
+  if (loading) return <SkeletonStatGrid count={6} />;
+
+  const width = gridColumns === 3 ? '32.4%' : '48.6%';
+
   return (
-    <View style={styles.container}>
-      <View style={styles.grid}>
-        {items.map((stat, idx) => (
-          <View key={stat.label || idx} style={styles.card}>
-            <Text style={[styles.value, { color: stat.color }]}>{stat.value}</Text>
-            <Text style={styles.label}>{stat.label}</Text>
-          </View>
-        ))}
-      </View>
+    <View style={styles.grid}>
+      {items.map((stat, idx) => (
+        <StatTile key={stat.label} {...stat} index={idx} width={width} />
+      ))}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    marginVertical: 10,
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  card: {
-    backgroundColor: '#070F1E',
-    borderWidth: 1,
-    borderColor: '#1E293B',
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    width: '48.5%',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  value: {
-    fontSize: 18,
-    fontWeight: '900',
-    fontFamily: 'monospace',
-    letterSpacing: 0.5,
-    marginBottom: 4,
-  },
-  label: {
-    fontSize: 9.5,
-    fontWeight: '700',
-    color: '#8E9AA8',
-    fontFamily: 'monospace',
-    letterSpacing: 0.8,
-    textAlign: 'center',
-  },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'space-between' },
+  tile: { paddingVertical: 14, paddingHorizontal: 14, borderWidth: StyleSheet.hairlineWidth },
 });
