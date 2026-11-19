@@ -28,7 +28,7 @@ const SITE = config.courtListener.siteUrl;
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 const LIMITER = 'courtlistener';
-configureLimiter(LIMITER, config.courtListener.requestsPerMinute);
+configureLimiter(LIMITER, config.courtListener.requestsPerMinute, config.courtListener.requestsPerHour);
 
 type Params = Record<string, string | number | boolean | undefined | null>;
 

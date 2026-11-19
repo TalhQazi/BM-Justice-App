@@ -16,7 +16,6 @@ import { useTheme } from '../theme/ThemeProvider';
 import { useAsync } from '../hooks/useAsync';
 import { formatDate, timeAgo } from '../utils/format';
 import { ErrorState } from './ErrorState';
-import { FALLBACK_FEED_ITEMS } from '../data/curatedData';
 import { AppText, Card, IconTile, PressableScale, SkeletonCard, enterUp } from './ui';
 
 /** Softly pulsing "live" indicator. */
@@ -91,14 +90,24 @@ export default function LiveIntelligencePanel() {
   const t = useTheme();
 
   const { data, error, loading, reload } = useAsync(async () => {
-    try {
-      const [ops, dks] = await Promise.allSettled([cl.latestOpinions(), cl.latestDockets()]);
-      const a = ops.status === 'fulfilled' ? ops.value.feed.slice(0, 2) : [];
-      const b = dks.status === 'fulfilled' ? dks.value.feed.slice(0, 2) : [];
-      const combined = [a[0], b[0], a[1], b[1]].filter(Boolean) as FeedItem[];
-      if (combined.length > 0) return combined;
-    } catch {}
-    return FALLBACK_FEED_ITEMS.slice(0, 4);
+    const [ops, dks] = await Promise.allSettled([cl.latestOpinions(), cl.latestDockets()]);
+    const a = ops.status === 'fulfilled' ? ops.value.feed.slice(0, 3) : [];
+    const b = dks.status === 'fulfilled' ? dks.value.feed.slice(0, 3) : [];
+    if (!a.length && !b.length) {
+      const failure = ops.status === 'rejected' ? ops.reason : dks.status === 'rejected' ? dks.reason : null;
+      if (failure) throw failure;
+    }
+    // Interleave opinions and dockets, skipping repeats of the same case.
+    const seen = new Set<string>();
+    return [a[0], b[0], a[1], b[1], a[2], b[2]]
+      .filter((x): x is FeedItem => !!x)
+      .filter((x) => {
+        const key = `${x.title}|${x.court}`.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 4);
   }, []);
 
   return (
@@ -130,15 +139,13 @@ export default function LiveIntelligencePanel() {
           <SkeletonCard lines={2} />
           <SkeletonCard lines={2} />
         </View>
-      ) : error && !data ? (
-        <View style={{ gap: 12 }}>
-          {FALLBACK_FEED_ITEMS.slice(0, 4).map((item, i) => (
-            <FeedCard key={item.id} item={item} index={i} />
-          ))}
-        </View>
+      ) : error ? (
+        <Card variant="sunken">
+          <ErrorState error={error} onRetry={reload} style={{ paddingVertical: 20 }} />
+        </Card>
       ) : (
         <View style={{ gap: 12 }}>
-          {(data && data.length ? data : FALLBACK_FEED_ITEMS.slice(0, 4)).map((item, i) => (
+          {(data || []).map((item, i) => (
             <FeedCard key={item.id} item={item} index={i} />
           ))}
         </View>

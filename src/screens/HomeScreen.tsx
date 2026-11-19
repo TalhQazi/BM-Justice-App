@@ -146,7 +146,7 @@ export default function HomeScreen() {
         <View style={[styles.footer, { borderTopColor: t.colors.divider }]}>
           <Badge label="Public records only" tone="neutral" />
           <AppText variant="caption" align="center" style={{ marginTop: 10 }}>
-            Benchmark Justice™ · Public Records & Judicial Intelligence · 2026
+            Benchmark Justice™ · Public Records & Judicial Intelligence · {new Date().getFullYear()}
           </AppText>
         </View>
       </Animated.ScrollView>

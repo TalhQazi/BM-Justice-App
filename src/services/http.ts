@@ -34,15 +34,27 @@ type Listener = (queued: number) => void;
 export type Priority = 'high' | 'normal' | 'low';
 const PRIORITY_RANK: Record<Priority, number> = { high: 0, normal: 1, low: 2 };
 
-/** Sliding-window limiter: at most `limit` starts per `windowMs`. FIFO. */
+interface Window {
+  limit: number;
+  ms: number;
+}
+
+/**
+ * Multi-window sliding limiter (e.g. 5/minute AND 45/hour). A request starts
+ * only when every window has room. Background (low-priority) work may not use
+ * the last ~25% of any window, so what the user taps can always start.
+ */
 class RateLimiter {
   private starts: number[] = [];
   private queue: { run: () => void; rank: number }[] = [];
   private timer: ReturnType<typeof setTimeout> | null = null;
   private pausedUntil = 0;
   private listeners = new Set<Listener>();
+  private longest: number;
 
-  constructor(private limit: number, private windowMs: number) {}
+  constructor(private windows: Window[]) {
+    this.longest = Math.max(...windows.map((w) => w.ms));
+  }
 
   /** Higher-priority work (what the user just tapped) runs before background work. */
   schedule<T>(task: () => Promise<T>, priority: Priority = 'normal'): Promise<T> {
@@ -79,6 +91,22 @@ class RateLimiter {
     this.listeners.forEach((l) => l(this.queue.length));
   }
 
+  /** How long until `rank` may start (0 = now). */
+  private waitFor(rank: number, now: number) {
+    let wait = 0;
+    for (const w of this.windows) {
+      const inWindow = this.starts.filter((t) => now - t < w.ms);
+      const reserve = Math.min(w.limit - 1, Math.max(Math.min(2, w.limit - 1), Math.round(w.limit * 0.25)));
+      const cap = rank === PRIORITY_RANK.low ? w.limit - reserve : w.limit;
+      if (inWindow.length >= cap) {
+        // The slot frees when the oldest start that keeps us at the cap ages out.
+        const oldest = inWindow[inWindow.length - cap];
+        wait = Math.max(wait, w.ms - (now - oldest) + 50);
+      }
+    }
+    return wait;
+  }
+
   private pump() {
     // Re-evaluate on every call: a newly queued high-priority request must not
     // wait for a timer that was armed for queued background work.
@@ -86,8 +114,8 @@ class RateLimiter {
       clearTimeout(this.timer);
       this.timer = null;
     }
-    const now = Date.now();
-    this.starts = this.starts.filter((t) => now - t < this.windowMs);
+    let now = Date.now();
+    this.starts = this.starts.filter((t) => now - t < this.longest);
     if (now < this.pausedUntil) {
       this.timer = setTimeout(() => {
         this.timer = null;
@@ -95,19 +123,16 @@ class RateLimiter {
       }, this.pausedUntil - now + 50);
       return;
     }
-    // Background (low-priority) work may not use the last `reserve` slots, so
-    // whatever the user taps next can start immediately.
-    const reserve = Math.min(2, this.limit - 1);
+    let wait = 0;
     while (this.queue.length) {
-      const head = this.queue[0];
-      const cap = head.rank === PRIORITY_RANK.low ? this.limit - reserve : this.limit;
-      if (this.starts.length >= cap) break;
-      this.starts.push(Date.now());
+      wait = this.waitFor(this.queue[0].rank, now);
+      if (wait > 0) break;
+      this.starts.push(now);
       this.queue.shift()!.run();
+      now = Date.now();
     }
     this.emit();
     if (this.queue.length) {
-      const wait = this.windowMs - (now - this.starts[0]) + 50;
       this.timer = setTimeout(() => {
         this.timer = null;
         this.pump();
@@ -118,8 +143,12 @@ class RateLimiter {
 
 const limiters: Partial<Record<string, RateLimiter>> = {};
 
-export function configureLimiter(key: string, perMinute: number) {
-  if (!limiters[key]) limiters[key] = new RateLimiter(Math.max(1, perMinute), 60_000);
+export function configureLimiter(key: string, perMinute: number, perHour?: number) {
+  if (!limiters[key]) {
+    const windows: Window[] = [{ limit: Math.max(1, perMinute), ms: 60_000 }];
+    if (perHour) windows.push({ limit: Math.max(1, perHour), ms: 3_600_000 });
+    limiters[key] = new RateLimiter(windows);
+  }
   return limiters[key]!;
 }
 
@@ -245,7 +274,7 @@ async function doFetch<T>(url: string, opts: RequestOptions, attempt = 0): Promi
     } catch {
       /* non-JSON body */
     }
-    if (res.status === 429 && attempt < 2 && opts.limiter && limiters[opts.limiter]) {
+    if (res.status === 429 && attempt < 4 && opts.limiter && limiters[opts.limiter]) {
       // Back off for as long as the server asks, then retry through the queue.
       const limiter = limiters[opts.limiter]!;
       limiter.pause(retryAfterMs(res, detail));

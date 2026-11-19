@@ -19,11 +19,10 @@ interface EntityCardsProps {
 export default function EntityCards({ onSelectCategory }: EntityCardsProps) {
   const navigation = useNavigation<any>();
   const t = useTheme();
-  const { stats, loading } = useCoverageStats();
-  const live = (n: number | undefined, unit: string, fallback: number) => {
-    const val = typeof n === 'number' && n > 0 ? n : fallback;
-    return `${formatCount(val)} ${unit}`;
-  };
+  const { stats, failed } = useCoverageStats();
+  // Live count, "Loading…" until it arrives, "Unavailable" only if its request failed.
+  const live = (n: number | undefined, unit: string, key: string) =>
+    typeof n === 'number' ? `${formatCount(n)} ${unit}` : (failed as string[]).includes(key) ? 'Unavailable' : 'Loading…';
 
   const handleSelect = (category: Category) => {
     if (onSelectCategory) {
@@ -57,7 +56,7 @@ export default function EntityCards({ onSelectCategory }: EntityCardsProps) {
       title: 'Judges & Justices',
       subtitle: 'Judicial Profiles & Opinions',
       desc: 'Positions, appointments, education and authored opinions.',
-      count: live(stats.judges, 'indexed', 15119),
+      count: live(stats.judges, 'indexed', 'judges'),
       tone: 'success',
       icon: Gavel,
     },
@@ -66,7 +65,7 @@ export default function EntityCards({ onSelectCategory }: EntityCardsProps) {
       title: 'Trial & Appellate Attorneys',
       subtitle: 'Counsel of Record',
       desc: 'Contact details and every federal docket they appeared on.',
-      count: live(stats.attorneys, 'on record', 185000),
+      count: 'Search by name',
       tone: 'info',
       icon: Briefcase,
     },
@@ -84,7 +83,7 @@ export default function EntityCards({ onSelectCategory }: EntityCardsProps) {
       title: 'Audited Cases & Dockets',
       subtitle: 'Case Law & Federal Dockets',
       desc: 'Published opinions, federal dockets, filings and parties.',
-      count: live(stats.opinions, 'opinions', 8339561),
+      count: live(stats.opinions, 'opinions', 'opinions'),
       tone: 'teal',
       icon: FileText,
     },
@@ -93,7 +92,7 @@ export default function EntityCards({ onSelectCategory }: EntityCardsProps) {
       title: 'Members of Congress',
       subtitle: 'Members & Legislation',
       desc: 'Terms of service, sponsored bills and legislative activity.',
-      count: live(stats.legislators, 'current members', 539),
+      count: live(stats.legislators, 'current members', 'legislators'),
       tone: 'warning',
       icon: Vote,
     },

@@ -25,7 +25,7 @@ export default function UniversalSearch() {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<SearchResults | null>(null);
-  const [selectedFilter, setSelectedFilter] = useState<SearchFilterKey>('ALL');
+  const [selectedFilter, setSelectedFilter] = useState<SearchFilterKey>('JUDGE');
   /** The query that was last searched (null until the user taps Search). */
   const [submitted, setSubmitted] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -102,7 +102,7 @@ export default function UniversalSearch() {
         value={query}
         onChangeText={onChangeQuery}
         loading={loading}
-        placeholder="Search judges, attorneys, cases, dockets…"
+        placeholder="Search names, cases, dockets…"
         onSubmit={(q) => runSearch(q, selectedFilter)}
         accessibilityLabel="Search legal records"
       />

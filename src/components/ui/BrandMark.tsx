@@ -28,7 +28,10 @@ export function BrandMark({ size = 'md', onDark = false }: { size?: 'sm' | 'md' 
             { borderRadius: tile * 0.3, borderWidth: 1, borderColor: 'rgba(210,182,118,0.55)' },
           ]}
         />
-        <Landmark size={tile * 0.52} color={palette.gold400} strokeWidth={1.8} />
+        {/* Wrapped so it paints above the absolutely-positioned gradient on web. */}
+        <View style={styles.icon}>
+          <Landmark size={tile * 0.52} color={palette.gold400} strokeWidth={1.8} />
+        </View>
       </View>
       <View>
         <AppText
@@ -55,4 +58,5 @@ export function BrandMark({ size = 'md', onDark = false }: { size?: 'sm' | 'md' 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   tile: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  icon: { position: 'relative', zIndex: 1 },
 });

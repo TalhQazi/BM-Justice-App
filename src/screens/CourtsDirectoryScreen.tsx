@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { useNavigation } from '@react-navigation/native';
@@ -6,7 +6,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Building2, CalendarDays, ChevronRight, Landmark } from 'lucide-react-native';
 import * as cl from '../services/courtlistener';
 import type { Court, SearchResultItem } from '../types';
-import { FALLBACK_COURTS } from '../data/curatedData';
 import type { ToneKey } from '../theme/themes';
 import { useTheme } from '../theme/ThemeProvider';
 import { CONTENT_MAX_WIDTH, useResponsive, useTabBarSpace } from '../theme/responsive';
@@ -150,18 +149,6 @@ export default function CourtsDirectoryScreen() {
     [q, jurisdiction],
   );
 
-  const fallbackFiltered = useMemo(() => {
-    return FALLBACK_COURTS.filter((c) => {
-      if (q.trim()) {
-        const norm = q.toLowerCase();
-        return c.fullName.toLowerCase().includes(norm) || c.shortName.toLowerCase().includes(norm);
-      }
-      return !jurisdiction || c.jurisdiction === jurisdiction;
-    });
-  }, [q, jurisdiction]);
-
-  const displayItems = items.length > 0 ? items : fallbackFiltered;
-
   const openItem = useCallback(
     (item: SearchResultItem) => {
       setSelected(null);
@@ -191,7 +178,7 @@ export default function CourtsDirectoryScreen() {
         onChangeText={onChangeQuery}
         onSubmit={setQ}
         loading={loading && !!items.length}
-        placeholder="Court name or citation (e.g. Ninth, Cal.)…"
+        placeholder="Court name or citation…"
         accessibilityLabel="Search courts"
       />
 
@@ -222,7 +209,7 @@ export default function CourtsDirectoryScreen() {
   return (
     <View style={[styles.root, { backgroundColor: t.colors.background }]}>
       <FlatList
-        data={showSkeleton && !items.length && !displayItems.length ? [] : displayItems}
+        data={showSkeleton ? [] : items}
         keyExtractor={(c) => c.id}
         renderItem={({ item, index }) => (
           <Animated.View entering={enterUp(index % 20)}>
