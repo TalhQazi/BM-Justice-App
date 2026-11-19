@@ -536,3 +536,4 @@ export const FALLBACK_COURTS: Court[] = [
     inUse: true,
   },
 ];
+
