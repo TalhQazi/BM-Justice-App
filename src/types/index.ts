@@ -249,6 +249,8 @@ export interface CoverageStats {
   dockets?: number;
   judges?: number;
   courts?: number;
+  /** Opinions published in the last 30 days. */
+  recentOpinions?: number;
   attorneys?: number;
   legislators?: number;
 }

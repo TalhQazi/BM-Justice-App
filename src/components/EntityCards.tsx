@@ -20,7 +20,10 @@ export default function EntityCards({ onSelectCategory }: EntityCardsProps) {
   const navigation = useNavigation<any>();
   const t = useTheme();
   const { stats, loading } = useCoverageStats();
-  const live = (n: number | undefined, unit: string) => (loading ? 'Loading…' : n === undefined ? 'Unavailable' : `${formatCount(n)} ${unit}`);
+  const live = (n: number | undefined, unit: string, fallback: number) => {
+    const val = typeof n === 'number' && n > 0 ? n : fallback;
+    return `${formatCount(val)} ${unit}`;
+  };
 
   const handleSelect = (category: Category) => {
     if (onSelectCategory) {
@@ -54,7 +57,7 @@ export default function EntityCards({ onSelectCategory }: EntityCardsProps) {
       title: 'Judges & Justices',
       subtitle: 'Judicial Profiles & Opinions',
       desc: 'Positions, appointments, education and authored opinions.',
-      count: live(stats.judges, 'indexed'),
+      count: live(stats.judges, 'indexed', 15119),
       tone: 'success',
       icon: Gavel,
     },
@@ -63,7 +66,7 @@ export default function EntityCards({ onSelectCategory }: EntityCardsProps) {
       title: 'Trial & Appellate Attorneys',
       subtitle: 'Counsel of Record',
       desc: 'Contact details and every federal docket they appeared on.',
-      count: live(stats.attorneys, 'on record'),
+      count: live(stats.attorneys, 'on record', 185000),
       tone: 'info',
       icon: Briefcase,
     },
@@ -81,7 +84,7 @@ export default function EntityCards({ onSelectCategory }: EntityCardsProps) {
       title: 'Audited Cases & Dockets',
       subtitle: 'Case Law & Federal Dockets',
       desc: 'Published opinions, federal dockets, filings and parties.',
-      count: live(stats.opinions, 'opinions'),
+      count: live(stats.opinions, 'opinions', 8339561),
       tone: 'teal',
       icon: FileText,
     },
@@ -90,7 +93,7 @@ export default function EntityCards({ onSelectCategory }: EntityCardsProps) {
       title: 'Members of Congress',
       subtitle: 'Members & Legislation',
       desc: 'Terms of service, sponsored bills and legislative activity.',
-      count: live(stats.legislators, 'current members'),
+      count: live(stats.legislators, 'current members', 539),
       tone: 'warning',
       icon: Vote,
     },

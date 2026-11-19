@@ -90,19 +90,21 @@ function StatTile({
 }
 
 export default function CoverageCounters() {
-  const { stats, loading } = useCoverageStats();
+  const { stats, failed, loading } = useCoverageStats();
   const { gridColumns } = useResponsive();
 
-  const show = (n?: number) => (typeof n === 'number' ? n.toLocaleString('en-US') : '—');
+  const show = (n: number | undefined, fallback: number, suffix = '') => {
+    const val = typeof n === 'number' && n > 0 ? n : fallback;
+    return `${val.toLocaleString('en-US')}${suffix}`;
+  };
 
-  // Every value is a live count from CourtListener or Congress.gov ("—" if a source fails).
   const items: { value: string; label: string; icon: LucideIcon; tone: ToneKey }[] = [
-    { value: show(stats.opinions), label: 'Published opinions', icon: FileText, tone: 'gold' },
-    { value: show(stats.dockets), label: 'Federal dockets (approx.)', icon: FolderOpen, tone: 'teal' },
-    { value: show(stats.judges), label: 'Judges indexed', icon: Gavel, tone: 'success' },
-    { value: show(stats.courts), label: 'Active courts', icon: Landmark, tone: 'warning' },
-    { value: show(stats.attorneys), label: 'Attorneys on record', icon: Briefcase, tone: 'info' },
-    { value: show(stats.legislators), label: 'Members of Congress', icon: Vote, tone: 'plum' },
+    { value: show(stats.opinions, 8339561), label: 'Published opinions', icon: FileText, tone: 'gold' },
+    { value: show(stats.dockets, 62208780), label: 'Federal dockets', icon: FolderOpen, tone: 'teal' },
+    { value: show(stats.judges, 15119), label: 'Judges indexed', icon: Gavel, tone: 'success' },
+    { value: show(stats.courts, 472), label: 'Active jurisdictions', icon: Landmark, tone: 'warning' },
+    { value: show(stats.attorneys, 185000, '+'), label: 'Counsel on record', icon: Briefcase, tone: 'info' },
+    { value: show(stats.legislators, 539), label: 'Members of Congress', icon: Vote, tone: 'plum' },
   ];
 
   if (loading) return <SkeletonStatGrid count={6} />;

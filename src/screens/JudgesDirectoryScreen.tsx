@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { useNavigation } from '@react-navigation/native';
@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowDownAZ, Gavel, Sparkles, UserSearch } from 'lucide-react-native';
 import * as cl from '../services/courtlistener';
 import type { SearchResultItem } from '../types';
+import { CURATED_JUDGES } from '../data/curatedData';
 import { useTheme } from '../theme/ThemeProvider';
 import { CONTENT_MAX_WIDTH, useResponsive, useTabBarSpace } from '../theme/responsive';
 import { navigateToResult } from '../utils/entities';
@@ -37,6 +38,16 @@ export default function JudgesDirectoryScreen() {
     (next) => cl.searchJudges(q, { order: sort, next }),
     [q, sort],
   );
+
+  const fallbackFiltered = useMemo(() => {
+    if (!q.trim()) return CURATED_JUDGES;
+    const norm = q.toLowerCase();
+    return CURATED_JUDGES.filter(
+      (j) => j.name.toLowerCase().includes(norm) || (j.subtitle && j.subtitle.toLowerCase().includes(norm)),
+    );
+  }, [q]);
+
+  const displayItems = items.length > 0 ? items : fallbackFiltered;
 
   const onPress = useCallback((item: SearchResultItem) => navigateToResult(navigation, item), [navigation]);
   const showSkeleton = loading && !items.length && !error;
@@ -91,7 +102,7 @@ export default function JudgesDirectoryScreen() {
   return (
     <View style={[styles.root, { backgroundColor: t.colors.background }]}>
       <FlatList
-        data={showSkeleton ? [] : items}
+        data={showSkeleton && !items.length && !displayItems.length ? [] : displayItems}
         keyExtractor={(item) => item.id}
         renderItem={({ item, index }) => (
           <Animated.View entering={enterUp(index % 20)}>

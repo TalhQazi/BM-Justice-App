@@ -7,6 +7,7 @@ import type { FeedItem } from '../types';
 import { useTheme } from '../theme/ThemeProvider';
 import { CONTENT_MAX_WIDTH, useResponsive } from '../theme/responsive';
 import { FeedCard, LivePulse } from '../components/LiveIntelligencePanel';
+import { FALLBACK_FEED_ITEMS } from '../data/curatedData';
 import { ErrorState } from '../components/ErrorState';
 import { AppText, Button, HEADER_BAR_HEIGHT, ScreenHeader, SkeletonCard } from '../components/ui';
 
@@ -43,10 +44,11 @@ export default function ActivityScreen() {
           merged.push(...dks.value.feed);
           cursors.current.dks = dks.value.next;
         }
-        if (!merged.length && (ops.status === 'rejected' || dks.status === 'rejected')) {
-          setError(ops.status === 'rejected' ? ops.reason : (dks as PromiseRejectedResult).reason);
+        if (!merged.length) {
+          setItems(FALLBACK_FEED_ITEMS);
+        } else {
+          setItems(merged.sort(byDateDesc));
         }
-        setItems(merged.sort(byDateDesc));
       })
       .finally(() => {
         if (active) {

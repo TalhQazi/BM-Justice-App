@@ -398,20 +398,21 @@ function docketToFeed(r: any): FeedItem {
 const notFuture = (d?: string | null) => !d || d <= isoDate(new Date());
 
 /**
- * Newest case-law opinions. The same request also supplies the dashboard's
- * total opinion count, so they share one cached response.
+ * Newest case-law opinions from the last 30 days. A date window is required:
+ * sorting the whole archive by date surfaces future-dated data-entry errors.
+ * `count` is the number of opinions in that window.
  */
 export async function latestOpinions(next?: string | null) {
-  const raw = await search('o', { order_by: 'dateFiled desc' }, next);
+  const raw = await search('o', { q: recentRange(30), order_by: 'dateFiled desc' }, next);
   const page = await listPage(raw, (r) => opinionHitToRecord(r));
   // Source data occasionally has future-dated typos; hide them from "latest".
   const results = page.results.filter((r) => notFuture(r.date));
   return { ...page, results, feed: results.map(opinionToFeed) };
 }
 
-/** Newest federal dockets (also supplies the docket count). */
+/** Newest federal dockets from the last 14 days (same future-date issue as above). */
 export async function latestDockets(next?: string | null) {
-  const raw = await search('d', { order_by: 'dateFiled desc' }, next);
+  const raw = await search('d', { q: recentRange(14), order_by: 'dateFiled desc' }, next);
   const feed = arr(raw?.results).map(docketToFeed).filter((f) => notFuture(f.date));
   return {
     feed,

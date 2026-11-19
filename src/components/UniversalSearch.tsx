@@ -25,7 +25,7 @@ export default function UniversalSearch() {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<SearchResults | null>(null);
-  const [selectedFilter, setSelectedFilter] = useState<SearchFilterKey>('JUDGE');
+  const [selectedFilter, setSelectedFilter] = useState<SearchFilterKey>('ALL');
   /** The query that was last searched (null until the user taps Search). */
   const [submitted, setSubmitted] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

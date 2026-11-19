@@ -80,7 +80,12 @@ class RateLimiter {
   }
 
   private pump() {
-    if (this.timer) return;
+    // Re-evaluate on every call: a newly queued high-priority request must not
+    // wait for a timer that was armed for queued background work.
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
     const now = Date.now();
     this.starts = this.starts.filter((t) => now - t < this.windowMs);
     if (now < this.pausedUntil) {

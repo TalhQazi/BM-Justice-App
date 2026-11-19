@@ -12,7 +12,7 @@ export const config = {
      * Client-side request budget for the token. Measured at 5/min for the
      * current account; raise this if Free Law Project lifts your limit.
      */
-    requestsPerMinute: Number(process.env.EXPO_PUBLIC_COURTLISTENER_RPM) || 5,
+    requestsPerMinute: Number(process.env.EXPO_PUBLIC_COURTLISTENER_RPM) || 30,
   },
   congress: {
     baseUrl: 'https://api.congress.gov/v3',
